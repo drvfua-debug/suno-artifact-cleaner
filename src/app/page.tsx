@@ -873,10 +873,13 @@ export default function Home() {
   return (
     <main className="min-h-screen pb-56 sm:pb-40">
       <header className="sticky top-0 z-10 border-b border-line bg-slate-950/90 px-4 py-3 backdrop-blur">
+        <a href="/lando_hp/artifactcleaner_eg/" className="absolute right-24 top-3 inline-flex items-center rounded border border-sky-300/40 bg-sky-400/10 px-3 py-2 text-xs font-semibold text-sky-100">
+          English
+        </a>
         <a href="https://ko-fi.com/au987716" target="_blank" rel="noreferrer" className="absolute right-4 top-3 inline-flex items-center gap-2 rounded border border-rose-300/40 bg-rose-400/15 px-3 py-2 text-xs font-semibold text-rose-100">
           <Coffee className="h-4 w-4" /> Ko-fi
         </a>
-        <div className="mx-auto max-w-[1600px] pr-24">
+        <div className="mx-auto max-w-[1600px] pr-44">
           <div className="flex items-center gap-2 text-lg font-semibold"><Activity className="h-5 w-5 text-sky-300" /> Suno Artifact Cleaner</div>
           <div className="mt-1 break-all text-xs text-muted">{fileInfo}</div>
           <div className="mt-3 flex flex-wrap items-center gap-2">
