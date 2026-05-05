@@ -316,6 +316,107 @@ function ComparisonRow({ label, before, after, suffix = "", inverse = false }: {
   );
 }
 
+function fmtNumber(value: number | undefined, digits = 1, suffix = ""): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "-";
+  return `${value.toFixed(digits)}${suffix}`;
+}
+
+function ReportTableRow({ label, before, after, suffix = "", digits = 1, lowerIsBetter = true }: { label: string; before?: number; after?: number; suffix?: string; digits?: number; lowerIsBetter?: boolean }) {
+  const hasAfter = typeof after === "number" && Number.isFinite(after);
+  const delta = hasAfter && typeof before === "number" ? after - before : undefined;
+  const improved = typeof delta === "number" ? lowerIsBetter ? delta < 0 : delta > 0 : false;
+  const worsened = typeof delta === "number" ? lowerIsBetter ? delta > 0 : delta < 0 : false;
+  const deltaText = typeof delta === "number" ? `${delta >= 0 ? "+" : ""}${delta.toFixed(digits)}${suffix}` : "-";
+  return (
+    <tr className="border-t border-line/70">
+      <td className="py-2 pr-3 font-medium text-slate-200">{label}</td>
+      <td className="py-2 pr-3 text-right text-muted">{fmtNumber(before, digits, suffix)}</td>
+      <td className="py-2 pr-3 text-right text-muted">{fmtNumber(after, digits, suffix)}</td>
+      <td className={`py-2 pr-3 text-right ${improved ? "text-emerald-200" : worsened ? "text-amber-200" : "text-muted"}`}>{deltaText}</td>
+      <td className={`py-2 text-right text-xs ${improved ? "text-emerald-200" : worsened ? "text-amber-200" : "text-muted"}`}>
+        {hasAfter ? improved ? "Improved" : worsened ? "Check" : "No change" : "No processed data"}
+      </td>
+    </tr>
+  );
+}
+
+function ReportBeforeAfterTable({ before, after }: { before?: AudioAnalysis; after?: AudioAnalysis }) {
+  if (!before) {
+    return (
+      <div className="rounded border border-line bg-panel p-4 text-sm text-muted">
+        Load an audio file to show the analysis table.
+      </div>
+    );
+  }
+  return (
+    <div className="rounded border border-line bg-panel p-4">
+      <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h2 className="font-semibold">Before / After Table</h2>
+          <p className="text-xs text-muted">Scores use 100 as a reference. Lower is usually cleaner for artifact scores.</p>
+        </div>
+        <div className="text-xs text-muted">{after ? "Processed analysis available" : "No processed result yet"}</div>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[680px] text-sm">
+          <thead className="text-xs text-muted">
+            <tr>
+              <th className="py-2 pr-3 text-left">Item</th>
+              <th className="py-2 pr-3 text-right">Before</th>
+              <th className="py-2 pr-3 text-right">After</th>
+              <th className="py-2 pr-3 text-right">Delta</th>
+              <th className="py-2 text-right">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            <ReportTableRow label="Late Decay Score" before={before.degradationSummary.lastThirdScore} after={after?.degradationSummary.lastThirdScore} />
+            <ReportTableRow label="Max Decay Score" before={before.degradationSummary.maxScore} after={after?.degradationSummary.maxScore} />
+            <ReportTableRow label="Harshness" before={before.scores.harshness} after={after?.scores.harshness} />
+            <ReportTableRow label="Sibilance" before={before.scores.sibilance} after={after?.scores.sibilance} />
+            <ReportTableRow label="Metallic Tone" before={before.scores.metallic} after={after?.scores.metallic} />
+            <ReportTableRow label="Hiss / Fizz" before={before.scores.hiss} after={after?.scores.hiss} />
+            <ReportTableRow label="Mud" before={before.scores.mud} after={after?.scores.mud} />
+            <ReportTableRow label="Clipping" before={before.scores.clipping} after={after?.scores.clipping} />
+            <ReportTableRow label="Estimated True Peak" before={before.scores.truePeak} after={after?.scores.truePeak} />
+            <ReportTableRow label="High-Frequency Loss" before={before.highFrequencyLossScore} after={after?.highFrequencyLossScore} />
+            <ReportTableRow label="Peak" before={before.peakDb} after={after?.peakDb} suffix=" dBFS" lowerIsBetter={false} />
+            <ReportTableRow label="RMS" before={before.rmsDb} after={after?.rmsDb} suffix=" dBFS" lowerIsBetter={false} />
+            <ReportTableRow label="Estimated LUFS" before={before.estimatedLufs} after={after?.estimatedLufs} lowerIsBetter={false} />
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function ReportSummaryPanel({ fileName, analysis, processedAnalysis, preset, chainLength }: { fileName?: string; analysis?: AudioAnalysis; processedAnalysis?: AudioAnalysis; preset: string; chainLength: number }) {
+  const summary = analysis?.degradationSummary;
+  const cards = [
+    { label: "File", value: fileName ?? "-" },
+    { label: "Duration", value: analysis ? formatTime(analysis.duration) : "-" },
+    { label: "Format", value: analysis ? `${analysis.sampleRate}Hz / ${analysis.channels}ch` : "-" },
+    { label: "Reference Section", value: analysis ? `${formatTime(analysis.referenceProfile.startSec)} - ${formatTime(analysis.referenceProfile.endSec)}` : "-" },
+    { label: "Max Decay Section", value: summary ? `${formatTime(summary.maxScoreStartSec)} - ${formatTime(summary.maxScoreEndSec)}` : "-" },
+    { label: "Primary Cause", value: summary ? causeLabel(summary.primaryCause) : "-" },
+    { label: "Selected Preset", value: presetDisplayName(preset, preset) },
+    { label: "Processing Chain", value: `${chainLength} steps` },
+    { label: "Processed Analysis", value: processedAnalysis ? "Available" : "Not yet" }
+  ];
+  return (
+    <div className="rounded border border-line bg-panel p-4">
+      <h2 className="mb-3 font-semibold">Report Summary</h2>
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+        {cards.map((card) => (
+          <div key={card.label} className="rounded bg-panel2 px-3 py-2 text-sm">
+            <div className="text-xs text-muted">{card.label}</div>
+            <div className="mt-1 break-words text-slate-100">{card.value}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function ScoreComparisonPanel({ before, after }: { before?: AudioAnalysis; after?: AudioAnalysis }) {
   if (!before) return null;
   return (
@@ -1108,19 +1209,31 @@ export default function Home() {
         )}
 
         {mode === "report" && (
-          <section className="grid gap-4 lg:grid-cols-[1fr_420px]">
-            <div className="rounded border border-line bg-panel p-4">
-              <h2 className="mb-3 font-semibold">Analysis Report preview / analysis-report.json</h2>
-              <pre className="max-h-[65vh] overflow-auto rounded bg-slate-950 p-3 text-xs text-slate-200">{JSON.stringify(report, null, 2)}</pre>
-            </div>
-            <div className="space-y-4">
+          <section className="space-y-4">
+            <ReportSummaryPanel fileName={fileMeta?.name} analysis={analysis} processedAnalysis={processedAnalysis} preset={preset} chainLength={result?.chain.length ?? 0} />
+            <ReportBeforeAfterTable before={analysis} after={processedAnalysis} />
+            <div className="grid gap-4 lg:grid-cols-[1fr_420px]">
               <div className="rounded border border-line bg-panel p-4 text-sm">
-                <h2 className="mb-2 font-semibold">Summary</h2>
-                <div className="space-y-1 text-muted">
-                  <div>degradationSummary: {summary ? JSON.stringify(summary) : "-"}</div>
-                  <div>referenceProfile: {analysis ? `${formatTime(analysis.referenceProfile.startSec)} - ${formatTime(analysis.referenceProfile.endSec)}` : "-"}</div>
-                  <div>timelineMetrics: {analysis?.timelineMetrics.length ?? 0} chunks</div>
-                  <div>processedAnalysis: {processedAnalysis ? `${processedAnalysis.timelineMetrics.length} chunks / last ${processedAnalysis.degradationSummary.lastThirdScore.toFixed(1)}` : "-"}</div>
+                <h2 className="mb-3 font-semibold">Timeline Summary</h2>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <div className="rounded bg-panel2 px-3 py-2">
+                    <div className="text-xs text-muted">First / Middle / Last</div>
+                    <div className="mt-1 text-slate-100">
+                      {summary ? `${summary.firstThirdScore.toFixed(0)} / ${summary.middleThirdScore.toFixed(0)} / ${summary.lastThirdScore.toFixed(0)}` : "-"}
+                    </div>
+                  </div>
+                  <div className="rounded bg-panel2 px-3 py-2">
+                    <div className="text-xs text-muted">Timeline chunks</div>
+                    <div className="mt-1 text-slate-100">{analysis?.timelineMetrics.length ?? 0}</div>
+                  </div>
+                  <div className="rounded bg-panel2 px-3 py-2">
+                    <div className="text-xs text-muted">Processed chunks</div>
+                    <div className="mt-1 text-slate-100">{processedAnalysis?.timelineMetrics.length ?? 0}</div>
+                  </div>
+                  <div className="rounded bg-panel2 px-3 py-2">
+                    <div className="text-xs text-muted">Recommended Long Song preset</div>
+                    <div className="mt-1 text-slate-100">{summary ? recommendedPresetLabel(summary.recommendedPreset) : "-"}</div>
+                  </div>
                 </div>
               </div>
               <div className="rounded border border-line bg-panel p-4">
@@ -1130,6 +1243,10 @@ export default function Home() {
                 </div>
               </div>
             </div>
+            <details className="rounded border border-line bg-panel p-4" open>
+              <summary className="cursor-pointer font-semibold">analysis-report.json preview</summary>
+              <pre className="mt-3 max-h-[55vh] overflow-auto rounded bg-slate-950 p-3 text-xs text-slate-200">{JSON.stringify(report, null, 2)}</pre>
+            </details>
           </section>
         )}
       </div>
