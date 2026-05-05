@@ -1,0 +1,16 @@
+node_modules/
+.next/
+out/
+dist/
+artifactcleaner/
+artifact-cleaner-static-upload-drvf/
+UPLOAD_TO_DRVF_artifactcleaner_latest/
+web-upload/
+web-upload-static/
+backups/
+coverage/
+*.log
+*.zip
+*.tsbuildinfo
+.env*
+!.env.example
