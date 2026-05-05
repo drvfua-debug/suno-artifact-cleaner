@@ -4,6 +4,15 @@ English version of Suno Artifact Cleaner.
 
 This browser-only tool analyzes and repairs harshness, sibilance, metallic high-frequency artifacts, hiss, mud, clipping risk, excessive peaks, and long-song temporal degradation often found in AI-generated audio exports.
 
+## Demo URL
+
+- English: [https://drvf.net/lando_hp/artifactcleaner_eg/](https://drvf.net/lando_hp/artifactcleaner_eg/)
+- Japanese: [https://drvf.net/lando_hp/artifactcleaner/](https://drvf.net/lando_hp/artifactcleaner/)
+
+## Screenshots
+
+Screenshots are planned. See [docs/screenshots/README.md](docs/screenshots/README.md).
+
 ## Features
 
 - WAV / MP3 input

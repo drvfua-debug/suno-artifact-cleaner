@@ -1,6 +1,6 @@
 # Deployment Checklist
 
-Use this checklist before uploading the project for a web test run.
+Use this checklist before publishing or updating the English app.
 
 ## Required Commands
 
@@ -18,18 +18,6 @@ Expected result:
 - Vitest passes
 - Next.js production build passes
 - Static export passes
-
-## Recommended Host
-
-Vercel is the simplest path for this Next.js app.
-
-Settings:
-
-- Framework preset: Next.js
-- Build command: `npm run build`
-- Install command: `npm ci`
-- Output directory: leave default
-- Node.js: 20.x or 22.x
 
 ## Static Upload Target
 
@@ -51,32 +39,50 @@ Upload the contents of:
 out/
 ```
 
-to the server folder:
+to:
 
 ```text
 /lando_hp/artifactcleaner_eg/
 ```
 
-The exported app includes `index.html`, `404.html`, and `_next/` assets. Do not upload the source project for this static hosting mode.
+Do not upload the `out` folder itself.
+
+## GitHub / Vercel Notes
+
+Recommended Vercel settings:
+
+- Framework preset: Next.js
+- Install command: `npm ci`
+- Build command: `npm run build`
+- Output directory: default
+- Node.js: 20.x or 22.x
+
+No environment variables are required.
 
 ## Manual Smoke Test
 
 After deployment:
 
 1. Open the deployed URL in Chrome or Edge.
-2. Drop a WAV file.
-3. Confirm file info and analysis scores appear.
-4. Confirm the degradation timeline appears.
-5. Click a timeline chunk and confirm loop text updates.
-6. Run a Long Song Decay Fix preset.
-7. Switch Original / Processed / Difference Monitor.
-8. Export `processed.wav`.
-9. Export `analysis-report.json`.
+2. Drop a WAV or MP3 file.
+3. Confirm automatic analysis starts.
+4. Confirm a recommended repair type is selected.
+5. Click a Decay Timeline section.
+6. Confirm loop playback works.
+7. Apply the current settings.
+8. Compare Original / Processed / Removed / Added.
+9. Export WAV.
+10. Export `analysis-report.json`.
 
-## Important Notes
+## Security / Privacy Notes
 
 - Audio is processed in the browser.
 - Selected audio files are not uploaded by the application code.
-- Large files can use a lot of browser memory.
+- Production browser source maps are explicitly disabled in `next.config.mjs`.
+- Do not commit `.env`, local audio files, `out/`, `.next/`, zip files, or upload folders.
+
+## Known Operational Notes
+
+- Large files can use significant browser memory.
 - LUFS and True Peak are approximation meters in this MVP.
-- For accurate production mastering decisions, compare with a dedicated metering tool.
+- For final mastering decisions, compare with a DAW or dedicated metering tool.
