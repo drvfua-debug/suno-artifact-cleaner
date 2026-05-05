@@ -1,16 +1,25 @@
+# Dependencies
 node_modules/
+
+# Next.js build output
 .next/
 out/
 dist/
+
+# Local static upload bundles
 artifactcleaner/
 artifact-cleaner-static-upload-drvf/
 UPLOAD_TO_DRVF_artifactcleaner_latest/
 web-upload/
 web-upload-static/
+
+# Local backups and reports
 backups/
 coverage/
 *.log
 *.zip
 *.tsbuildinfo
+
+# Environment files
 .env*
 !.env.example

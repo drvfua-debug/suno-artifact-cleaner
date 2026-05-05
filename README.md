@@ -4,6 +4,8 @@ Browser-only audio artifact analysis and repair tool for AI-generated music expo
 
 Suno Artifact Cleaner helps detect and reduce harshness, sibilance, metallic high-frequency artifacts, hiss, mud, clipping risk, excessive peaks, and long-song temporal quality decay. Audio files are processed locally in the browser by the application code.
 
+This repository is prepared for public release and static hosting.
+
 ## Demo URL
 
 - Japanese UI: [https://drvf.net/lando_hp/artifactcleaner/](https://drvf.net/lando_hp/artifactcleaner/)

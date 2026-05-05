@@ -4,6 +4,7 @@ const basePath = process.env.NEXT_PUBLIC_BASE_PATH || "";
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // Keep production source maps out of public static hosting output.
   productionBrowserSourceMaps: false,
   ...(isStaticExport
     ? {
