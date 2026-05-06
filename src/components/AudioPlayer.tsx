@@ -172,7 +172,7 @@ export function AudioPlayer({ original, processed, loop, setLoop, loudnessMatch,
   return (
     <div className="fixed inset-x-0 bottom-0 z-20 border-t border-line bg-slate-950/95 px-3 py-2 backdrop-blur sm:px-4">
       <div className="mx-auto grid max-w-[1600px] gap-2">
-        <div className="grid grid-cols-[44px_44px_44px_5.75rem_1fr] items-center gap-2">
+        <div className="grid grid-cols-[42px_42px_42px_4.75rem_1fr] items-center gap-2 sm:grid-cols-[44px_44px_44px_5.75rem_1fr]">
           <button className="h-11 rounded bg-slate-800 p-2 text-sky-200 disabled:opacity-40" onClick={() => skip(-10)} disabled={!active} title="Back 10 seconds">
             <Rewind className="h-5 w-5" />
           </button>
@@ -196,25 +196,24 @@ export function AudioPlayer({ original, processed, loop, setLoop, loudnessMatch,
           />
         </div>
 
-        <div className="grid grid-cols-4 items-center gap-2 sm:flex sm:flex-wrap">
-          <div className="col-span-4 grid grid-cols-4 rounded border border-line p-1 text-[11px] sm:flex sm:flex-none sm:text-xs">
+        <div className="grid gap-2 md:grid-cols-[minmax(320px,1fr)_auto_auto_auto] md:items-center">
+          <div className="grid grid-cols-4 rounded border border-line p-1 text-[11px] sm:text-xs">
             {(["original", "processed", "removed", "added"] as Mode[]).map((item) => (
               <button key={item} onClick={() => switchMode(item)} disabled={(item !== "original" && !processed) || (item === "added" && !hasPositiveEnhancements)} className={`rounded px-2 py-1 ${mode === item ? "bg-sky-400 text-slate-950" : "text-muted"}`}>
                 {item === "original" ? "Original" : item === "processed" ? "Processed" : item === "removed" ? "Removed" : "Added"}
               </button>
             ))}
           </div>
-          <button className="col-span-1 rounded border border-line px-2 py-2 text-xs disabled:opacity-40 sm:px-3 sm:py-1" disabled={!original} onClick={() => setLoop(loop ? undefined : { start: Math.max(0, position), end: Math.max(position + 5, position + 10) })}>
+          <button className="rounded border border-line px-2 py-2 text-xs disabled:opacity-40 md:min-w-28" disabled={!original} onClick={() => setLoop(loop ? undefined : { start: Math.max(0, position), end: Math.max(position + 5, position + 10) })}>
             {loop ? `Loop ${formatTime(loop.start)}-${formatTime(loop.end)}` : "Loop"}
           </button>
-          <button className="col-span-2 inline-flex min-w-0 items-center justify-center gap-1 rounded bg-fuchsia-300 px-2 py-2 text-xs font-semibold text-slate-950 disabled:opacity-40 sm:px-3 sm:py-1.5" disabled={!canProcess || busy} onClick={onProcess}>
+          <button className="inline-flex min-w-0 items-center justify-center gap-1 rounded bg-fuchsia-300 px-2 py-2 text-xs font-semibold text-slate-950 disabled:opacity-40 md:min-w-36" disabled={!canProcess || busy} onClick={onProcess}>
             <Wand2 className="h-4 w-4 shrink-0" />
             <span className="sm:hidden">Apply Settings</span>
             <span className="hidden sm:inline">Apply Current Settings</span>
           </button>
-          <div className="col-span-4 text-center text-[11px] text-muted sm:text-left">Processes the selected repair values. If Mastering is ON, mastering is included.</div>
           <button
-            className="col-span-1 inline-flex items-center justify-center gap-1 rounded bg-emerald-300 px-2 py-2 text-xs font-semibold text-slate-950 disabled:opacity-40 sm:px-3 sm:py-1"
+            className="inline-flex items-center justify-center gap-1 rounded bg-emerald-300 px-2 py-2 text-xs font-semibold text-slate-950 disabled:opacity-40 md:min-w-24"
             disabled={!processed}
             onClick={() => {
               if (!processed) return;
@@ -225,8 +224,9 @@ export function AudioPlayer({ original, processed, loop, setLoop, loudnessMatch,
             <Download className="h-4 w-4 shrink-0" />
             <span>Save</span>
           </button>
-          {loudnessMatch && <div className="col-span-4 text-center text-xs text-fuchsia-200 sm:text-left">A/B loudness match ON</div>}
-          <div className="hidden text-xs text-muted md:block">If the Removed signal contains loud vocals or instruments, repair is too strong. Added is for checking additive enhancements.</div>
+          <div className="text-center text-[11px] text-muted md:col-span-4 md:text-left">
+            Processes the selected repair values. If Mastering is ON, mastering is included. If the Removed signal contains loud vocals or instruments, repair is too strong.{loudnessMatch ? " A/B loudness match ON." : ""}
+          </div>
         </div>
       </div>
     </div>
