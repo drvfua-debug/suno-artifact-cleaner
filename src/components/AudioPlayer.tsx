@@ -172,7 +172,7 @@ export function AudioPlayer({ original, processed, loop, setLoop, loudnessMatch,
   return (
     <div className="fixed inset-x-0 bottom-0 z-20 border-t border-line bg-slate-950/95 px-3 py-2 backdrop-blur sm:px-4">
       <div className="mx-auto grid max-w-[1600px] gap-2">
-        <div className="grid grid-cols-[42px_42px_42px_4.75rem_1fr] items-center gap-2 sm:grid-cols-[44px_44px_44px_5.75rem_1fr]">
+        <div className="hidden grid-cols-[42px_42px_42px_4.75rem_1fr] items-center gap-2 sm:grid sm:grid-cols-[44px_44px_44px_5.75rem_1fr]">
           <button className="h-11 rounded bg-slate-800 p-2 text-sky-200 disabled:opacity-40" onClick={() => skip(-10)} disabled={!active} title="10秒戻る">
             <Rewind className="h-5 w-5" />
           </button>
@@ -196,24 +196,24 @@ export function AudioPlayer({ original, processed, loop, setLoop, loudnessMatch,
           />
         </div>
 
-        <div className="grid gap-2 md:grid-cols-[minmax(320px,1fr)_auto_auto_auto] md:items-center">
-          <div className="grid grid-cols-4 rounded border border-line p-1 text-[11px] sm:text-xs">
+        <div className="grid grid-cols-3 gap-2 sm:grid-cols-[minmax(320px,1fr)_auto_auto_auto] sm:items-center">
+          <div className="hidden grid-cols-4 rounded border border-line p-1 text-[11px] sm:grid sm:text-xs">
             {(["original", "processed", "removed", "added"] as Mode[]).map((item) => (
               <button key={item} onClick={() => switchMode(item)} disabled={(item !== "original" && !processed) || (item === "added" && !hasPositiveEnhancements)} className={`rounded px-2 py-1 ${mode === item ? "bg-sky-400 text-slate-950" : "text-muted"}`}>
                 {item === "original" ? "元音 Original" : item === "processed" ? "補正後 Processed" : item === "removed" ? "削った音" : "足した音"}
               </button>
             ))}
           </div>
-          <button className="rounded border border-line px-2 py-2 text-xs disabled:opacity-40 md:min-w-28" disabled={!original} onClick={() => setLoop(loop ? undefined : { start: Math.max(0, position), end: Math.max(position + 5, position + 10) })}>
+          <button className="min-h-11 rounded border border-line px-2 py-2 text-[11px] font-semibold disabled:opacity-40 sm:min-w-28 sm:text-xs" disabled={!original} onClick={() => setLoop(loop ? undefined : { start: Math.max(0, position), end: Math.max(position + 5, position + 10) })}>
             {loop ? `ループ ${formatTime(loop.start)}-${formatTime(loop.end)}` : "ループ"}
           </button>
-          <button className="inline-flex min-w-0 items-center justify-center gap-1 rounded bg-fuchsia-300 px-2 py-2 text-xs font-semibold text-slate-950 disabled:opacity-40 md:min-w-36" disabled={!canProcess || busy} onClick={onProcess}>
-            <Wand2 className="h-4 w-4 shrink-0" />
-            <span className="sm:hidden">現在設定を適用</span>
+          <button className="inline-flex min-h-11 min-w-0 items-center justify-center gap-1 rounded bg-fuchsia-300 px-2 py-2 text-[11px] font-semibold text-slate-950 disabled:opacity-40 sm:min-w-36 sm:text-xs" disabled={!canProcess || busy} onClick={onProcess}>
+            <Wand2 className="hidden h-4 w-4 shrink-0 sm:block" />
+            <span className="sm:hidden">現在設定</span>
             <span className="hidden sm:inline">現在の設定を適用</span>
           </button>
           <button
-            className="inline-flex items-center justify-center gap-1 rounded bg-emerald-300 px-2 py-2 text-xs font-semibold text-slate-950 disabled:opacity-40 md:min-w-24"
+            className="inline-flex min-h-11 items-center justify-center gap-1 rounded bg-emerald-300 px-2 py-2 text-[11px] font-semibold text-slate-950 disabled:opacity-40 sm:min-w-24 sm:text-xs"
             disabled={!processed}
             onClick={() => {
               if (!processed) return;
@@ -224,7 +224,7 @@ export function AudioPlayer({ original, processed, loop, setLoop, loudnessMatch,
             <Download className="h-4 w-4 shrink-0" />
             <span>保存</span>
           </button>
-          <div className="text-center text-[11px] text-muted md:col-span-4 md:text-left">
+          <div className="hidden text-center text-[11px] text-muted sm:col-span-4 sm:block sm:text-left">
             選択中の補正値を処理します。MasteringがONなら込みで適用します。削った音でメインボーカルや楽器が大きく聞こえる場合は補正が強すぎます。{loudnessMatch ? " A/B音量マッチON。" : ""}
           </div>
         </div>
