@@ -43,9 +43,9 @@ function scoreDelta(before: AudioAnalysis | undefined, after: AudioAnalysis | un
 
 export function ExportPanel({ fileName, processed, analysis, processedAnalysis, params, result, preset, outputFileName, onWavSaved }: Props) {
   return (
-    <div className="flex flex-wrap gap-2">
+    <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
       <button
-        className="inline-flex items-center gap-2 rounded bg-emerald-300 px-3 py-2 text-sm font-semibold text-slate-950 disabled:opacity-50"
+        className="inline-flex items-center justify-center gap-2 rounded bg-emerald-300 px-3 py-2 text-sm font-semibold text-slate-950 disabled:opacity-50"
         disabled={!processed}
         onClick={() => {
           if (!processed) return;
@@ -56,7 +56,7 @@ export function ExportPanel({ fileName, processed, analysis, processedAnalysis, 
         <Download className="h-4 w-4" /> Save WAV
       </button>
       <button
-        className="inline-flex items-center gap-2 rounded border border-line bg-panel px-3 py-2 text-sm disabled:opacity-50"
+        className="inline-flex items-center justify-center gap-2 rounded border border-line bg-panel px-3 py-2 text-sm disabled:opacity-50"
         disabled={!analysis}
         onClick={() => {
           if (!analysis) return;

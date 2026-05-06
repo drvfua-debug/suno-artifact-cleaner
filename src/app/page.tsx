@@ -824,8 +824,40 @@ function InternalSeverityTable({ before, after }: { before?: AudioAnalysis; afte
         </div>
         {hasWorse && <span className="rounded bg-amber-200 px-2 py-1 text-xs font-bold text-slate-950">Check items detected</span>}
       </div>
-      <div className="mt-3 overflow-x-auto">
-        <table className="w-full min-w-[760px] border-collapse text-xs">
+      <div className="mt-3 grid gap-2 sm:hidden">
+        {rows.map((row) => {
+          const afterRaw = row.afterScore?.raw;
+          const current = afterRaw ?? row.beforeScore.raw;
+          const delta = row.delta;
+          const improved = typeof delta === "number" && delta < -0.5;
+          const worsened = typeof delta === "number" && delta > 0.5;
+          return (
+            <div key={row.key} className="rounded border border-line/80 bg-slate-950/45 p-3 text-xs">
+              <div className="font-semibold text-slate-100">{row.label}</div>
+              <div className="mt-2 grid grid-cols-4 gap-2 text-left">
+                <div>
+                  <div className="text-[10px] text-muted">Before</div>
+                  <div className={row.beforeScore.raw > 100 ? "text-rose-100" : "text-emerald-200"}>{row.beforeScore.raw.toFixed(0)}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] text-muted">After</div>
+                  <div className={typeof afterRaw === "number" && afterRaw > 100 ? "text-rose-100" : "text-emerald-200"}>{typeof afterRaw === "number" ? afterRaw.toFixed(0) : "-"}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] text-muted">Delta</div>
+                  <div className={improved ? "text-emerald-200" : worsened ? "text-amber-200" : "text-muted"}>{typeof delta === "number" ? `${delta > 0 ? "+" : ""}${delta.toFixed(0)}` : "-"}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] text-muted">Status</div>
+                  <div className={worsened ? "font-semibold text-amber-200" : improved ? "font-semibold text-emerald-200" : "text-muted"}>{worsened ? "Check" : improved ? "Improved" : current > 100 ? "Over 100" : "OK"}</div>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-3 hidden overflow-x-auto sm:block">
+        <table className="w-full min-w-[640px] border-collapse text-xs">
           <thead className="text-left text-muted">
             <tr className="border-b border-line">
               <th className="py-2 pr-3">Item</th>
@@ -1199,18 +1231,18 @@ export default function Home() {
   };
 
   return (
-    <main className="min-h-screen pb-72 sm:pb-48">
+    <main className="min-h-screen pb-24 sm:pb-48">
       <header className="sticky top-0 z-10 border-b border-line bg-slate-950/90 px-4 py-3 backdrop-blur">
-        <a href="/lando_hp/artifactcleaner/" className="absolute right-24 top-3 inline-flex items-center rounded border border-sky-300/40 bg-sky-400/10 px-3 py-2 text-xs font-semibold text-sky-100">
+        <a href="/lando_hp/artifactcleaner/" className="absolute right-20 top-3 inline-flex items-center rounded border border-sky-300/40 bg-sky-400/10 px-2 py-1.5 text-[11px] font-semibold text-sky-100 sm:right-24 sm:px-3 sm:py-2 sm:text-xs">
           Japanese
         </a>
-        <a href="https://ko-fi.com/au987716" target="_blank" rel="noreferrer" className="absolute right-4 top-3 inline-flex items-center gap-2 rounded border border-rose-300/40 bg-rose-400/15 px-3 py-2 text-xs font-semibold text-rose-100">
+        <a href="https://ko-fi.com/au987716" target="_blank" rel="noreferrer" className="absolute right-3 top-3 inline-flex items-center gap-1 rounded border border-rose-300/40 bg-rose-400/15 px-2 py-1.5 text-[11px] font-semibold text-rose-100 sm:right-4 sm:gap-2 sm:px-3 sm:py-2 sm:text-xs">
           <Coffee className="h-4 w-4" /> Ko-fi
         </a>
-        <div className="mx-auto max-w-[1600px] pr-44">
-          <div className="flex items-center gap-2 text-lg font-semibold"><Activity className="h-5 w-5 text-sky-300" /> Suno Artifact Cleaner</div>
-          <div className="mt-1 break-all text-xs text-muted">{fileInfo}</div>
-          <div className="mt-3 flex flex-wrap items-center gap-2">
+        <div className="mx-auto max-w-[1600px] pr-32 sm:pr-44">
+          <div className="flex items-center gap-2 text-base font-semibold sm:text-lg"><Activity className="h-5 w-5 shrink-0 text-sky-300" /> <span className="truncate">Suno Artifact Cleaner</span></div>
+          <div className="mt-1 line-clamp-2 break-all text-[11px] leading-snug text-muted sm:text-xs">{fileInfo}</div>
+          <div className="mt-2 flex flex-col gap-2 sm:mt-3 sm:flex-row sm:flex-wrap sm:items-center">
             <div className="hidden items-center gap-2 rounded border border-emerald-300/30 bg-emerald-300/10 px-3 py-2 text-xs text-emerald-100 md:flex">
               <ShieldCheck className="h-4 w-4" /> Browser-only processing / No upload / Estimated analysis
             </div>
@@ -1219,7 +1251,7 @@ export default function Home() {
         </div>
       </header>
 
-      <nav className="sticky top-[104px] z-10 border-b border-line bg-slate-950/95 px-3 py-2 backdrop-blur sm:top-[116px]">
+      <nav className="sticky top-[124px] z-10 border-b border-line bg-slate-950/95 px-3 py-1.5 backdrop-blur sm:top-[116px] sm:py-2">
         <div className="mx-auto grid max-w-[1600px] grid-cols-3 gap-1 rounded border border-line bg-panel2 p-1 text-xs sm:flex sm:w-fit">
           {tabs.map((tab) => (
             <button key={tab.id} onClick={() => setMode(tab.id)} className={`rounded px-2 py-2 font-semibold ${mode === tab.id ? "bg-sky-300 text-slate-950" : "text-muted"}`}>
