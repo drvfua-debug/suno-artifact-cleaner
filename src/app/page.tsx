@@ -42,6 +42,7 @@ const quickPresets = [
 
 const quickPresetIds = new Set(quickPresets.map((preset) => preset.id));
 const otherPresetOptions = presets.filter((preset) => !quickPresetIds.has(preset.id));
+const negativeOnlyPresetIds = new Set([...quickPresetIds, "decay-gentle", "decay-strong"]);
 
 function fmtBytes(bytes: number): string {
   if (bytes > 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
@@ -155,6 +156,57 @@ function manualNeutralParams(current: ProcessingParams): ProcessingParams {
     longSongDecayFix: false,
     lookaheadLimiter: true
   };
+}
+
+function clearPositiveParams(params: ProcessingParams): ProcessingParams {
+  return {
+    ...params,
+    highAirRecover: 0,
+    bassEnhance: 0,
+    vocalForward: 0,
+    vocalBody: 0,
+    lowWeight: 0,
+    air: 0,
+    presence: 0,
+    mixWarmth: 0
+  };
+}
+
+function applyNoiseReductionPreset(base: ProcessingParams, presetId: string): ProcessingParams {
+  const next = applyPreset(base, presetId);
+  return negativeOnlyPresetIds.has(presetId) ? clearPositiveParams(next) : next;
+}
+
+function analyzeAudioAsync(audio: AudioBufferData, chunkSeconds = 10, referenceOverride?: { startSec: number; endSec: number }): Promise<AudioAnalysis> {
+  if (typeof Worker === "undefined") return Promise.resolve(analyzeAudio(audio, chunkSeconds, referenceOverride));
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(new URL("../lib/audio/workers/analysisWorker.ts", import.meta.url), { type: "module" });
+    worker.onmessage = (event: MessageEvent<{ analysis: AudioAnalysis }>) => {
+      worker.terminate();
+      resolve(event.data.analysis);
+    };
+    worker.onerror = (event) => {
+      worker.terminate();
+      reject(new Error(event.message || "Analysis worker failed."));
+    };
+    worker.postMessage({ audio, chunkSeconds, referenceOverride });
+  });
+}
+
+function processAudioAsync(audio: AudioBufferData, params: ProcessingParams, analysis?: AudioAnalysis): Promise<ProcessingResult> {
+  if (typeof Worker === "undefined") return Promise.resolve(processAudio(audio, params, analysis));
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(new URL("../lib/audio/workers/processWorker.ts", import.meta.url), { type: "module" });
+    worker.onmessage = (event: MessageEvent<{ result: ProcessingResult }>) => {
+      worker.terminate();
+      resolve(event.data.result);
+    };
+    worker.onerror = (event) => {
+      worker.terminate();
+      reject(new Error(event.message || "Process worker failed."));
+    };
+    worker.postMessage({ audio, params, analysis });
+  });
 }
 
 function applyWavAirRecovery(params: ProcessingParams, analysis: AudioAnalysis, format: FileMeta["format"]): ProcessingParams {
@@ -790,9 +842,9 @@ export default function Home() {
     window.setTimeout(async () => {
       try {
         await waitForPaint();
-        const next = processAudio(audio, nextParams, analysis);
+        const next = await processAudioAsync(audio, nextParams, analysis);
         setStatus("補正後スコアを解析中...");
-        const nextProcessedAnalysis = analyzeAudio(next.audio, 10, analysis ? { startSec: analysis.referenceProfile.startSec, endSec: analysis.referenceProfile.endSec } : undefined);
+        const nextProcessedAnalysis = await analyzeAudioAsync(next.audio, 10, analysis ? { startSec: analysis.referenceProfile.startSec, endSec: analysis.referenceProfile.endSec } : undefined);
         setProcessed(next.audio);
         setProcessedAnalysis(nextProcessedAnalysis);
         setResult(next);
@@ -830,19 +882,13 @@ export default function Home() {
       setAudio(decoded.data);
       setFileMeta({ name: file.name, size: file.size, bitDepth: decoded.bitDepth, format });
       setStatus("解析中...");
-      const nextAnalysis = analyzeAudio(decoded.data, 10);
+      const nextAnalysis = await analyzeAudioAsync(decoded.data, 10);
       const recommendation = recommendForAnalysis(nextAnalysis, format);
       const autoPresetId = recommendation.presetId;
       const autoParams = {
-        ...applyPreset(defaultParams, autoPresetId),
+        ...applyNoiseReductionPreset(defaultParams, autoPresetId),
         masteringEnabled: false,
         autoLoudness: false,
-        highAirRecover: 0,
-        bassEnhance: 0,
-        vocalForward: 0,
-        vocalBody: 0,
-        lowWeight: 0,
-        air: 0,
         artifactHeadroomDb: recommendedArtifactHeadroomDb(nextAnalysis)
       };
       setAnalysis(nextAnalysis);
@@ -868,7 +914,7 @@ export default function Home() {
     if (id === "decay-gentle") setLongSongStrength("gentle");
     if (id === "decay-balanced") setLongSongStrength("balanced");
     if (id === "decay-strong") setLongSongStrength("strong");
-    setParams((current) => applyPreset(current, id));
+    setParams((current) => applyNoiseReductionPreset(current, id));
     setSettingsDirty(true);
     setStatus("補正タイプを選択しました。次に「補正する」を押してください。");
   };
@@ -882,7 +928,11 @@ export default function Home() {
 
   const chooseRecommendedPreset = () => {
     const id = analysis ? recommendForAnalysis(analysis, fileMeta?.format ?? "WAV").presetId : recommendedPresetId(longSongStrength);
-    const nextParams = { ...applyPreset(params, id), masteringEnabled: params.masteringEnabled, autoLoudness: params.autoLoudness };
+    const nextParams = {
+      ...applyNoiseReductionPreset(params, id),
+      masteringEnabled: params.masteringEnabled,
+      autoLoudness: params.autoLoudness
+    };
     setPreset(id);
     setParams(nextParams);
     setSettingsDirty(true);
@@ -907,9 +957,9 @@ export default function Home() {
     const endSec = params.referenceEndSec ?? analysis?.referenceProfile.endSec ?? 60;
     setBusy(true);
     setStatus("Reference Sectionで再解析中...");
-    window.setTimeout(() => {
+    window.setTimeout(async () => {
       try {
-        const nextAnalysis = analyzeAudio(audio, 10, { startSec, endSec });
+        const nextAnalysis = await analyzeAudioAsync(audio, 10, { startSec, endSec });
         setAnalysis(nextAnalysis);
         setProcessed(undefined);
         setProcessedAnalysis(undefined);
@@ -972,7 +1022,7 @@ export default function Home() {
   };
 
   return (
-    <main className="min-h-screen pb-56 sm:pb-40">
+    <main className="min-h-screen pb-72 sm:pb-48">
       <header className="sticky top-0 z-10 border-b border-line bg-slate-950/90 px-4 py-3 backdrop-blur">
         <a href="/lando_hp/artifactcleaner_eg/" className="absolute right-24 top-3 inline-flex items-center rounded border border-sky-300/40 bg-sky-400/10 px-3 py-2 text-xs font-semibold text-sky-100">
           English
@@ -1007,12 +1057,30 @@ export default function Home() {
         {mode === "long" && (
           <section className="space-y-4">
             {!audio && <Dropzone onFile={loadFile} busy={busy} />}
+            <div className="rounded border border-line bg-panel p-4">
+              <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <div className="text-xs text-sky-100">1. 診断</div>
+                  <h2 className="text-lg font-semibold">この曲で目立つ劣化を先に判定します</h2>
+                  <p className="mt-1 text-sm text-muted">アップロード後に自動解析し、後半劣化・最大劣化区間・主原因をここに表示します。</p>
+                </div>
+                {analysis && <div className="text-xs text-muted">基準区間 {formatTime(analysis.referenceProfile.startSec)} - {formatTime(analysis.referenceProfile.endSec)}</div>}
+              </div>
+              <div className="grid gap-3 md:grid-cols-6">
+                <StatCard label="後半劣化スコア" value={`${lastScore.toFixed(0)} / 100`} tone={severityClass(lastScore)} />
+                <StatCard label="判定" value={analysis ? severity(Math.max(lastScore, maxScore)) : "-"} tone={analysis ? severityClass(Math.max(lastScore, maxScore)) : ""} />
+                <StatCard label="主原因" value={summary ? causeLabel(summary.primaryCause) : "-"} />
+                <StatCard label="最大劣化区間" value={summary ? `${formatTime(summary.maxScoreStartSec)} - ${formatTime(summary.maxScoreEndSec)}` : "-"} />
+                <StatCard label="推奨" value={recommendedAutoLabel.replace("Long Song Decay Fix - ", "")} />
+                <StatCard label="高域欠落" value={analysis ? `${analysis.highFrequencyLossScore.toFixed(0)} / 100` : "-"} tone={analysis ? severityClass(analysis.highFrequencyLossScore) : ""} />
+              </div>
+            </div>
             <div className="rounded border border-sky-300/25 bg-sky-300/10 p-4">
               <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div>
-                  <div className="text-xs text-sky-100">簡単補正</div>
-                  <h2 className="mt-1 text-lg font-semibold">おすすめ補正タイプを自動選択します</h2>
-                  <p className="mt-1 text-sm text-muted">WAV / MP3をUPすると解析後に補正タイプが選ばれます。迷ったらそのまま「補正する」を押してください。</p>
+                  <div className="text-xs text-sky-100">2. マイナス補正</div>
+                  <h2 className="mt-1 text-lg font-semibold">ノイズを減らす補正タイプを自動選択します</h2>
+                  <p className="mt-1 text-sm text-muted">自動選択はノイズを削る処理だけを選びます。明るさ・太さ・ボーカル前出しは下の「プラス補正」で別に足します。</p>
                 </div>
                 <div className="grid gap-2 sm:grid-cols-2 md:min-w-[360px]">
                   <button disabled={!analysis || busy} onClick={chooseRecommendedPreset} className="rounded border border-fuchsia-300/50 bg-fuchsia-300/15 px-4 py-3 text-sm font-semibold text-fuchsia-50 disabled:opacity-40">
@@ -1071,7 +1139,7 @@ export default function Home() {
                 <div className="mt-3 rounded border border-emerald-300/25 bg-emerald-300/10 p-3">
                   <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
                     <div>
-                      <h3 className="text-sm font-semibold text-emerald-50">プラス補正の提案</h3>
+                      <h3 className="text-sm font-semibold text-emerald-50">任意のプラス補正 / 音を足す処理</h3>
                       <p className="mt-1 text-xs leading-relaxed text-emerald-100/80">
                         自動選択はノイズを減らすマイナス補正だけです。明るさ、太さ、ボーカル前出しは必要な場合だけここから追加してください。
                       </p>
@@ -1127,15 +1195,14 @@ export default function Home() {
                 </button>
               </div>
             </div>
-            <div className="grid gap-3 md:grid-cols-6">
-              <StatCard label="後半劣化スコア" value={`${lastScore.toFixed(0)} / 100`} tone={severityClass(lastScore)} />
-              <StatCard label="判定" value={severity(Math.max(lastScore, maxScore))} tone={severityClass(Math.max(lastScore, maxScore))} />
-              <StatCard label="主原因" value={summary ? causeLabel(summary.primaryCause) : "-"} />
-              <StatCard label="最大劣化区間" value={summary ? `${formatTime(summary.maxScoreStartSec)} - ${formatTime(summary.maxScoreEndSec)}` : "-"} />
-              <StatCard label="推奨" value={recommendedAutoLabel.replace("Long Song Decay Fix - ", "")} />
-              <StatCard label="高域欠落" value={analysis ? `${analysis.highFrequencyLossScore.toFixed(0)} / 100` : "-"} tone={analysis ? severityClass(analysis.highFrequencyLossScore) : ""} />
+            <div className="space-y-3">
+              <div className="rounded border border-line bg-panel p-4">
+                <div className="text-xs text-sky-100">3. 確認</div>
+                <h2 className="text-lg font-semibold">補正後の変化をスコアと耳で確認します</h2>
+                <p className="mt-1 text-sm text-muted">補正後にスコア表、劣化タイムライン、下部プレイヤーのOriginal / Processed / 削った音で確認してください。</p>
+              </div>
+              <ScoreComparisonPanel before={analysis} after={processedAnalysis} />
             </div>
-            <ScoreComparisonPanel before={analysis} after={processedAnalysis} />
             <InternalSeverityTable before={analysis} after={processedAnalysis} />
             {mp3HighLossNotice && (
               <div className="rounded border border-sky-300/30 bg-sky-300/10 p-3 text-sm leading-relaxed text-sky-50">
