@@ -19,6 +19,17 @@ export type AutoRecommendation = {
   reason: string;
 };
 
+export type RepairStrategy = "conservative" | "balanced" | "more_repair";
+
+export type RepairOption = {
+  id: RepairStrategy;
+  label: string;
+  description: string;
+  recommendation: AutoRecommendation;
+  params: ProcessingParams;
+  notes: string[];
+};
+
 export function recommendedPresetId(preset: DegradationSummary["recommendedPreset"]): string {
   if (preset === "gentle") return "decay-gentle";
   if (preset === "strong") return "decay-strong";
@@ -132,7 +143,8 @@ export function recommendForAnalysis(analysis: AudioAnalysis, format: InputForma
 export function buildRecommendedParams(
   analysis: AudioAnalysis,
   format: InputFormat = "WAV",
-  base: ProcessingParams = defaultParams
+  base: ProcessingParams = defaultParams,
+  strategy: RepairStrategy = "balanced"
 ): { recommendation: AutoRecommendation; params: ProcessingParams; notes: string[] } {
   const recommendation = recommendForAnalysis(analysis, format);
   const { scores, degradationSummary } = analysis;
@@ -145,7 +157,9 @@ export function buildRecommendedParams(
   const harshVocal = Math.max(scores.harshness, scores.sibilance);
   const glassNoise = Math.max(scores.hiss, scores.metallic);
   const artifactRisk = Math.max(harshVocal, glassNoise, temporalSeverity);
-  const overallRepair = clamp(24 + artifactRisk * 0.42 + Math.max(0, temporalRise) * 0.18, 22, 72);
+  const strategyScale = strategy === "conservative" ? 0.78 : strategy === "more_repair" ? 1.16 : 1;
+  const strategyOffset = strategy === "conservative" ? -4 : strategy === "more_repair" ? 5 : 0;
+  const overallRepair = clamp((24 + artifactRisk * 0.42 + Math.max(0, temporalRise) * 0.18) * strategyScale + strategyOffset, 18, strategy === "more_repair" ? 82 : 72);
   const headroom =
     artifactRisk >= 100 || maxScore >= 88 ? -2.5 :
     artifactRisk >= 72 || maxScore >= 68 ? -2 :
@@ -155,17 +169,17 @@ export function buildRecommendedParams(
   let params: ProcessingParams = {
     ...applyPreset(base, recommendation.presetId),
     repairAmount: round(overallRepair),
-    harshnessReduction: round(clamp(18 + scores.harshness * 0.45 + Math.max(0, temporalRise) * 0.12, 12, 62)),
-    sibilanceReduction: round(clamp(18 + scores.sibilance * 0.5 + Math.max(0, temporalRise) * 0.14, 12, 66)),
-    metallicReduction: round(clamp(16 + scores.metallic * 0.55 + maxScore * 0.12, 10, 68)),
-    hissReduction: round(clamp(18 + scores.hiss * 0.62 + maxScore * 0.16, 12, 72)),
+    harshnessReduction: round(clamp((18 + scores.harshness * 0.45 + Math.max(0, temporalRise) * 0.12) * strategyScale + strategyOffset, 8, strategy === "more_repair" ? 74 : 62)),
+    sibilanceReduction: round(clamp((18 + scores.sibilance * 0.5 + Math.max(0, temporalRise) * 0.14) * strategyScale + strategyOffset, 8, strategy === "more_repair" ? 76 : 66)),
+    metallicReduction: round(clamp((16 + scores.metallic * 0.55 + maxScore * 0.12) * strategyScale + strategyOffset, 8, strategy === "more_repair" ? 78 : 68)),
+    hissReduction: round(clamp((18 + scores.hiss * 0.62 + maxScore * 0.16) * strategyScale + strategyOffset, 10, strategy === "more_repair" ? 82 : 72)),
     mudReduction: round(clamp(8 + scores.mud * 0.22, 6, 32)),
     toneLeveling: round(clamp(artifactRisk * 0.12, 0, 18)),
-    stereoWidthReduction: round(clamp(18 + maxScore * 0.45 + Math.max(0, temporalRise) * 0.18, 12, 72)),
-    layeredSpectralRepair: round(clamp(24 + maxScore * 0.48, 20, 76)),
-    highTextureRepair: round(clamp(18 + glassNoise * 0.45 + maxScore * 0.16, 14, 68)),
-    artifactHeadroomDb: headroom,
-    outputGainDb: artifactRisk >= 72 ? 1.5 : artifactRisk >= 45 ? 1 : 0.5,
+    stereoWidthReduction: round(clamp((18 + maxScore * 0.45 + Math.max(0, temporalRise) * 0.18) * strategyScale + strategyOffset, 8, strategy === "more_repair" ? 82 : 72)),
+    layeredSpectralRepair: round(clamp((24 + maxScore * 0.48) * strategyScale + strategyOffset, 16, strategy === "more_repair" ? 86 : 76)),
+    highTextureRepair: round(clamp((18 + glassNoise * 0.45 + maxScore * 0.16) * strategyScale + strategyOffset, 12, strategy === "more_repair" ? 78 : 68)),
+    artifactHeadroomDb: strategy === "more_repair" ? Math.min(headroom, -2) : strategy === "conservative" ? Math.max(headroom, -1.5) : headroom,
+    outputGainDb: strategy === "conservative" ? 0.5 : artifactRisk >= 72 ? 1.5 : artifactRisk >= 45 ? 1 : 0.5,
     truePeakCeilingDb: artifactRisk >= 72 ? -1.2 : -1,
     masteringEnabled: false,
     autoLoudness: false,
@@ -183,7 +197,11 @@ export function buildRecommendedParams(
     mixWarmth: 0
   };
 
-  const notes: string[] = ["解析値から各スライダーを自動調整しました。"];
+  const notes: string[] = [
+    strategy === "conservative" ? "原音優先の控えめな提案数値です。" :
+    strategy === "more_repair" ? "耳障りな成分をより強く抑える提案数値です。" :
+    "解析値から各スライダーを自動調整しました。"
+  ];
 
   const sourceHasRoom = analysis.peakDb <= -3 && analysis.rmsDb <= -16;
   const needsBodyBack = sourceHasRoom && artifactRisk >= 45 && scores.mud < 72;
@@ -211,4 +229,20 @@ export function buildRecommendedParams(
   }
 
   return { recommendation, params, notes };
+}
+
+export function buildRepairOptions(
+  analysis: AudioAnalysis,
+  format: InputFormat = "WAV",
+  base: ProcessingParams = defaultParams
+): RepairOption[] {
+  const definitions: Array<{ id: RepairStrategy; label: string; description: string }> = [
+    { id: "conservative", label: "Conservative", description: "原音優先。削りすぎを避けて軽く整えます。" },
+    { id: "balanced", label: "Balanced", description: "推奨。ノイズ低減と音の太さのバランスを取ります。" },
+    { id: "more_repair", label: "More Repair", description: "強め。まだ刺さる時に使います。明るさが少し減る可能性があります。" }
+  ];
+  return definitions.map((definition) => {
+    const built = buildRecommendedParams(analysis, format, base, definition.id);
+    return { ...definition, ...built };
+  });
 }

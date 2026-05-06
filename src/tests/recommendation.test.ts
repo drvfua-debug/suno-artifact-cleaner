@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildRecommendedParams, recommendForAnalysis } from "@/lib/audio/recommendation";
+import { buildRecommendedParams, buildRepairOptions, recommendForAnalysis } from "@/lib/audio/recommendation";
 import type { AudioAnalysis } from "@/lib/audio/types";
 
 type AnalysisOverrides = Partial<Omit<AudioAnalysis, "scores" | "degradationSummary">> & {
@@ -168,5 +168,29 @@ describe("auto recommendation", () => {
     expect(auto.params.outputGainDb).toBeGreaterThan(0);
     expect(auto.params.vocalBody).toBeGreaterThan(0);
     expect(auto.params.masteringEnabled).toBe(false);
+  });
+
+  it("builds three repair options ordered by repair strength", () => {
+    const analysis = makeAnalysis({
+      peakDb: -5,
+      rmsDb: -18,
+      scores: { harshness: 32, sibilance: 36, metallic: 28, hiss: 54, mud: 32 },
+      degradationSummary: {
+        recommendedPreset: "balanced",
+        firstThirdScore: 28,
+        middleThirdScore: 62,
+        lastThirdScore: 80,
+        averageDegradationScore: 58,
+        maxScore: 88,
+        maxScoreStartSec: 190,
+        maxScoreEndSec: 200,
+        primaryCause: "hiss"
+      }
+    });
+    const options = buildRepairOptions(analysis, "WAV");
+    expect(options.map((option) => option.id)).toEqual(["conservative", "balanced", "more_repair"]);
+    expect(options[0].params.repairAmount).toBeLessThan(options[1].params.repairAmount);
+    expect(options[1].params.repairAmount).toBeLessThan(options[2].params.repairAmount);
+    expect(options[2].params.hissReduction).toBeGreaterThan(options[0].params.hissReduction);
   });
 });
