@@ -157,28 +157,28 @@ export function buildRecommendedParams(
   const harshVocal = Math.max(scores.harshness, scores.sibilance);
   const glassNoise = Math.max(scores.hiss, scores.metallic);
   const artifactRisk = Math.max(harshVocal, glassNoise, temporalSeverity);
-  const strategyScale = strategy === "conservative" ? 0.78 : strategy === "more_repair" ? 1.16 : 1;
+  const strategyScale = strategy === "conservative" ? 0.74 : strategy === "more_repair" ? 1.1 : 0.94;
   const strategyOffset = strategy === "conservative" ? -4 : strategy === "more_repair" ? 5 : 0;
-  const overallRepair = clamp((24 + artifactRisk * 0.42 + Math.max(0, temporalRise) * 0.18) * strategyScale + strategyOffset, 18, strategy === "more_repair" ? 82 : 72);
+  const overallRepair = clamp((22 + artifactRisk * 0.38 + Math.max(0, temporalRise) * 0.14) * strategyScale + strategyOffset, 16, strategy === "more_repair" ? 78 : 68);
   const headroom =
-    artifactRisk >= 100 || maxScore >= 88 ? -2.5 :
-    artifactRisk >= 72 || maxScore >= 68 ? -2 :
-    artifactRisk >= 45 ? -1.5 :
-    -1;
+    artifactRisk >= 105 || maxScore >= 90 ? -2 :
+    artifactRisk >= 72 || maxScore >= 72 ? -1.5 :
+    artifactRisk >= 45 ? -1 :
+    -0.5;
 
   let params: ProcessingParams = {
     ...applyPreset(base, recommendation.presetId),
     repairAmount: round(overallRepair),
-    harshnessReduction: round(clamp((18 + scores.harshness * 0.45 + Math.max(0, temporalRise) * 0.12) * strategyScale + strategyOffset, 8, strategy === "more_repair" ? 74 : 62)),
-    sibilanceReduction: round(clamp((18 + scores.sibilance * 0.5 + Math.max(0, temporalRise) * 0.14) * strategyScale + strategyOffset, 8, strategy === "more_repair" ? 76 : 66)),
-    metallicReduction: round(clamp((16 + scores.metallic * 0.55 + maxScore * 0.12) * strategyScale + strategyOffset, 8, strategy === "more_repair" ? 78 : 68)),
-    hissReduction: round(clamp((18 + scores.hiss * 0.62 + maxScore * 0.16) * strategyScale + strategyOffset, 10, strategy === "more_repair" ? 82 : 72)),
+    harshnessReduction: round(clamp((16 + scores.harshness * 0.4 + Math.max(0, temporalRise) * 0.1) * strategyScale + strategyOffset, 6, strategy === "more_repair" ? 68 : 58)),
+    sibilanceReduction: round(clamp((16 + scores.sibilance * 0.45 + Math.max(0, temporalRise) * 0.11) * strategyScale + strategyOffset, 6, strategy === "more_repair" ? 70 : 62)),
+    metallicReduction: round(clamp((14 + scores.metallic * 0.46 + maxScore * 0.09) * strategyScale + strategyOffset, 6, strategy === "more_repair" ? 70 : 60)),
+    hissReduction: round(clamp((16 + scores.hiss * 0.54 + maxScore * 0.12) * strategyScale + strategyOffset, 8, strategy === "more_repair" ? 76 : 66)),
     mudReduction: round(clamp(8 + scores.mud * 0.22, 6, 32)),
     toneLeveling: round(clamp(artifactRisk * 0.12, 0, 18)),
-    stereoWidthReduction: round(clamp((18 + maxScore * 0.45 + Math.max(0, temporalRise) * 0.18) * strategyScale + strategyOffset, 8, strategy === "more_repair" ? 82 : 72)),
-    layeredSpectralRepair: round(clamp((24 + maxScore * 0.48) * strategyScale + strategyOffset, 16, strategy === "more_repair" ? 86 : 76)),
-    highTextureRepair: round(clamp((18 + glassNoise * 0.45 + maxScore * 0.16) * strategyScale + strategyOffset, 12, strategy === "more_repair" ? 78 : 68)),
-    artifactHeadroomDb: strategy === "more_repair" ? Math.min(headroom, -2) : strategy === "conservative" ? Math.max(headroom, -1.5) : headroom,
+    stereoWidthReduction: round(clamp((10 + maxScore * 0.28 + Math.max(0, temporalRise) * 0.12) * strategyScale + strategyOffset, 4, strategy === "more_repair" ? 58 : 48)),
+    layeredSpectralRepair: round(clamp((20 + maxScore * 0.4) * strategyScale + strategyOffset, 12, strategy === "more_repair" ? 78 : 68)),
+    highTextureRepair: round(clamp((14 + glassNoise * 0.38 + maxScore * 0.12) * strategyScale + strategyOffset, 10, strategy === "more_repair" ? 70 : 60)),
+    artifactHeadroomDb: strategy === "more_repair" ? Math.min(headroom, -1.5) : strategy === "conservative" ? Math.max(headroom, -1) : headroom,
     outputGainDb: strategy === "conservative" ? 0.5 : artifactRisk >= 72 ? 1.5 : artifactRisk >= 45 ? 1 : 0.5,
     truePeakCeilingDb: artifactRisk >= 72 ? -1.2 : -1,
     masteringEnabled: false,
@@ -208,9 +208,9 @@ export function buildRecommendedParams(
   if (needsBodyBack) {
     params = {
       ...params,
-      vocalBody: round(clamp(6 + Math.max(0, 62 - scores.mud) * 0.12, 6, 16)),
-      mixWarmth: round(clamp(4 + Math.max(0, 58 - scores.mud) * 0.1, 4, 12)),
-      lowWeight: round(clamp(3 + Math.max(0, 50 - scores.mud) * 0.08, 2, 8))
+      vocalBody: round(clamp(8 + Math.max(0, 62 - scores.mud) * 0.12, 8, 18)),
+      mixWarmth: round(clamp(6 + Math.max(0, 58 - scores.mud) * 0.1, 6, 14)),
+      lowWeight: round(clamp(4 + Math.max(0, 50 - scores.mud) * 0.08, 3, 10))
     };
     notes.push("補正で細くなりすぎないよう、控えめな太さ戻しも自動で入れています。");
   }

@@ -232,9 +232,9 @@ function recommendedArtifactHeadroomDb(analysis: AudioAnalysis): number {
     analysis.scoreSeverity.harshness.raw,
     analysis.scoreSeverity.degradation.raw
   );
-  if (artifactSeverity >= 140 || analysis.degradationSummary.maxScore >= 90) return -3;
-  if (artifactSeverity >= 105 || analysis.degradationSummary.maxScore >= 70) return -2;
-  if (artifactSeverity >= 70 || analysis.degradationSummary.maxScore >= 45) return -1.5;
+  if (artifactSeverity >= 170 && analysis.degradationSummary.maxScore >= 92) return -2.5;
+  if (artifactSeverity >= 120 || analysis.degradationSummary.maxScore >= 80) return -2;
+  if (artifactSeverity >= 80 || analysis.degradationSummary.maxScore >= 55) return -1.5;
   return -1;
 }
 
@@ -303,10 +303,27 @@ function scoreSeverityDelta(before: AudioAnalysis | undefined, after: AudioAnaly
   ]));
 }
 
-function qualityAssessment(before: AudioAnalysis | undefined, after: AudioAnalysis | undefined): { score: number; notes: string[]; warnings: string[] } | undefined {
+type QualityAssessment = {
+  score: number;
+  artifactScore: number;
+  preservationScore: number;
+  status: "improved" | "check" | "worse";
+  notes: string[];
+  warnings: string[];
+  shouldFallback: boolean;
+};
+
+function qualityAssessment(before: AudioAnalysis | undefined, after: AudioAnalysis | undefined): QualityAssessment | undefined {
   if (!before || !after) return undefined;
   const delta = scoreDelta(before, after);
   if (!delta) return undefined;
+  const artifactWorsening =
+    Math.max(0, -delta.harshness) * 0.2 +
+    Math.max(0, -delta.sibilance) * 0.22 +
+    Math.max(0, -delta.metallic) * 0.22 +
+    Math.max(0, -delta.hiss) * 0.28 +
+    Math.max(0, -delta.maxDegradationScore) * 0.18 +
+    Math.max(0, -delta.lastThirdScore) * 0.14;
   const artifactGain =
     Math.max(0, delta.harshness) * 0.14 +
     Math.max(0, delta.sibilance) * 0.16 +
@@ -318,17 +335,66 @@ function qualityAssessment(before: AudioAnalysis | undefined, after: AudioAnalys
   const peakTooLow = after.peakDb < -10 ? 5 : 0;
   const mudIncrease = Math.max(0, after.scores.mud - before.scores.mud) * 0.18;
   const highLossIncrease = Math.max(0, after.highFrequencyLossScore - before.highFrequencyLossScore) * 0.1;
-  const score = Math.round(Math.max(0, Math.min(100, 55 + artifactGain - loudnessLoss * 6 - peakTooLow - mudIncrease - highLossIncrease)));
+  const artifactScore = Math.round(Math.max(0, Math.min(100, 50 + artifactGain * 1.25 - artifactWorsening * 2.4)));
+  const preservationPenalty = loudnessLoss * 9 + peakTooLow + mudIncrease + highLossIncrease * 1.4;
+  const preservationScore = Math.round(Math.max(0, Math.min(100, 96 - preservationPenalty)));
+  const score = Math.round(Math.max(0, Math.min(100, artifactScore * 0.66 + preservationScore * 0.34)));
+  const shouldFallback =
+    artifactScore < 52 ||
+    artifactWorsening >= 4 ||
+    delta.maxDegradationScore < -4 ||
+    delta.lastThirdScore < -4 ||
+    loudnessLoss > 3.2 ||
+    after.highFrequencyLossScore > before.highFrequencyLossScore + 18;
+  const status = shouldFallback ? "worse" : score >= 66 && artifactScore >= 58 ? "improved" : "check";
   const notes = [
     delta.hiss > 0 ? "高域ノイズは減っています。" : "高域ノイズの改善は小さめです。",
     delta.harshness + delta.sibilance > 0 ? "刺さり・歯擦音は抑えられています。" : "刺さり成分は残っています。",
     after.peakDb > -1 ? "ピーク余裕が少ないため保存前に注意してください。" : "ピークには余裕があります。"
   ];
   const warnings: string[] = [];
+  if (artifactWorsening >= 4) warnings.push("補正対象スコアに悪化傾向があるため、補正を弱めた方が自然です。");
   if (loudnessLoss > 1.5) warnings.push("音量が下がりすぎて、大人しく聞こえる可能性があります。");
   if (mudIncrease > 5) warnings.push("中低域が増え、こもりや太りすぎに注意です。");
   if (after.highFrequencyLossScore > before.highFrequencyLossScore + 12) warnings.push("高域の抜けが減りすぎている可能性があります。");
-  return { score, notes, warnings };
+  return { score, artifactScore, preservationScore, status, notes, warnings, shouldFallback };
+}
+
+function clampParam(value: number, min = 0, max = 100): number {
+  return Math.round(Math.max(min, Math.min(max, value)));
+}
+
+function makeAuditionSafeParams(params: ProcessingParams): ProcessingParams {
+  return {
+    ...params,
+    repairAmount: clampParam(params.repairAmount * 0.76),
+    harshnessReduction: clampParam(params.harshnessReduction * 0.78),
+    sibilanceReduction: clampParam(params.sibilanceReduction * 0.76),
+    metallicReduction: clampParam(params.metallicReduction * 0.72),
+    hissReduction: clampParam(params.hissReduction * 0.72),
+    mudReduction: clampParam(params.mudReduction * 0.72),
+    toneLeveling: clampParam((params.toneLeveling ?? 0) * 0.72),
+    stereoWidthReduction: clampParam((params.stereoWidthReduction ?? 0) * 0.54),
+    layeredSpectralRepair: clampParam((params.layeredSpectralRepair ?? 0) * 0.62),
+    highTextureRepair: clampParam((params.highTextureRepair ?? 0) * 0.64),
+    highAirRecover: clampParam(Math.min(params.highAirRecover ?? 0, 5)),
+    air: clampParam((params.air ?? 0) * 0.55),
+    presence: clampParam((params.presence ?? 0) * 0.72),
+    artifactHeadroomDb: Math.max(params.artifactHeadroomDb ?? -1, -1.2),
+    outputGainDb: Math.max(-6, Math.min(3, (params.outputGainDb ?? 0) + 0.4)),
+    truePeakCeilingDb: Math.min(params.truePeakCeilingDb ?? -1, -1),
+    preserveBrightness: true,
+    safeMode: true
+  };
+}
+
+function shouldPreferSaferResult(first: QualityAssessment | undefined, safer: QualityAssessment | undefined): boolean {
+  if (!first || !first.shouldFallback) return false;
+  if (!safer) return false;
+  if (!safer.shouldFallback && safer.score >= first.score - 8) return true;
+  if (safer.score > first.score + 3) return true;
+  if (safer.preservationScore > first.preservationScore + 10 && safer.artifactScore >= first.artifactScore - 8) return true;
+  return false;
 }
 
 function buildReport(fileName: string | undefined, analysis: AudioAnalysis | undefined, processedAnalysis: AudioAnalysis | undefined, params: ProcessingParams, result: ProcessingResult | undefined, preset: string) {
@@ -384,7 +450,7 @@ function ComparisonRow({ label, before, after, suffix = "", inverse = false }: {
       <div className="flex items-center justify-between gap-2 text-xs">
         <span className="font-semibold text-slate-200">{label}</span>
         <span className={hasAfter ? improved ? "text-emerald-200" : worsened ? "text-amber-200" : "text-muted" : "text-muted"}>
-          {hasAfter ? `${improved ? "改善 " : worsened ? "増加 " : "変化 "} ${Math.abs(delta).toFixed(1)}${suffix}` : "補正後に表示"}
+          {hasAfter ? `${improved ? "改善 " : worsened ? "要確認 " : "変化 "} ${Math.abs(delta).toFixed(1)}${suffix}` : "補正後に表示"}
         </span>
       </div>
       <div className="mt-2 grid grid-cols-[52px_1fr_54px] items-center gap-2 text-[11px] text-muted">
@@ -503,14 +569,44 @@ function ReportSummaryPanel({ fileName, analysis, processedAnalysis, preset, cha
 function ScoreComparisonPanel({ before, after }: { before?: AudioAnalysis; after?: AudioAnalysis }) {
   if (!before) return null;
   const quality = qualityAssessment(before, after);
+  const qualityTone =
+    quality?.status === "improved" ? "bg-emerald-300/15 text-emerald-100" :
+    quality?.status === "worse" ? "bg-amber-300/15 text-amber-100" :
+    "bg-sky-300/15 text-sky-100";
+  const qualityLabel =
+    quality?.status === "improved" ? "聴感改善" :
+    quality?.status === "worse" ? "要再調整" :
+    "耳で確認";
   return (
     <div className="rounded border border-line bg-panel p-4">
       <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h2 className="font-semibold">補正後スコア / Before・After</h2>
-          <p className="text-xs text-muted">補正前後を同じ解析ロジックで再評価します。数値は推定です。</p>
+          <h2 className="font-semibold">補正結果 / Before・After</h2>
+          <p className="text-xs text-muted">まず「ノイズ低減」と「音質保持」を見ます。劣化スコア単体より、耳で良く聞こえるかを優先します。</p>
         </div>
-        {quality ? <div className="rounded bg-emerald-300/15 px-3 py-2 text-sm font-semibold text-emerald-100">改善度 {quality.score} / 100</div> : after && <div className="text-xs text-emerald-200">補正後解析済み</div>}
+        {quality ? <div className={`rounded px-3 py-2 text-sm font-semibold ${qualityTone}`}>{qualityLabel} {quality.score} / 100</div> : after && <div className="text-xs text-emerald-200">補正後解析済み</div>}
+      </div>
+      {quality && (
+        <div className="mb-3 grid gap-2 sm:grid-cols-2">
+          <div className="rounded border border-emerald-300/25 bg-emerald-300/10 p-3">
+            <div className="text-xs text-emerald-100">削る補正の成果</div>
+            <div className="mt-1 text-2xl font-semibold text-emerald-50">{quality.artifactScore} / 100</div>
+            <p className="mt-1 text-xs text-muted">刺さり・歯擦音・金属感・高域ノイズ・長尺劣化が下がったかを見ます。</p>
+          </div>
+          <div className="rounded border border-sky-300/25 bg-sky-300/10 p-3">
+            <div className="text-xs text-sky-100">音質保持</div>
+            <div className="mt-1 text-2xl font-semibold text-sky-50">{quality.preservationScore} / 100</div>
+            <p className="mt-1 text-xs text-muted">音量・太さ・高域の抜けが失われすぎていないかを見ます。</p>
+          </div>
+        </div>
+      )}
+      {quality?.status === "worse" && (
+        <div className="mb-3 rounded border border-amber-300/35 bg-amber-300/10 p-3 text-sm leading-relaxed text-amber-100">
+          この結果は数値上の悪化サインがあります。通常の補正実行では、安全側の弱め設定へ自動調整します。まだ痛い場合はMore Repair、音が細い場合はConservativeを試してください。
+        </div>
+      )}
+      <div className="mb-2 text-xs font-semibold text-slate-200">
+        補正対象スコア（低いほど耳障りな成分が少ない）
       </div>
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <ComparisonRow label="後半劣化" before={before.degradationSummary.lastThirdScore} after={after?.degradationSummary.lastThirdScore} />
@@ -519,6 +615,11 @@ function ScoreComparisonPanel({ before, after }: { before?: AudioAnalysis; after
         <ComparisonRow label="歯擦音" before={before.scores.sibilance} after={after?.scores.sibilance} />
         <ComparisonRow label="金属感" before={before.scores.metallic} after={after?.scores.metallic} />
         <ComparisonRow label="高域ノイズ" before={before.scores.hiss} after={after?.scores.hiss} />
+      </div>
+      <div className="mb-2 mt-3 text-xs font-semibold text-slate-200">
+        音質保持チェック（悪化しても、ノイズ低減とは別扱い）
+      </div>
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <ComparisonRow label="こもり" before={before.scores.mud} after={after?.scores.mud} />
         <ComparisonRow label="高域欠落" before={before.highFrequencyLossScore} after={after?.highFrequencyLossScore} />
       </div>
@@ -715,13 +816,13 @@ function InternalSeverityTable({ before, after }: { before?: AudioAnalysis; afte
         <div>
           <h2 className="font-semibold text-rose-50">内部重症度 / 100が基準</h2>
           <p className="mt-1 text-sm leading-relaxed text-rose-100/85">
-            100以下が目標です。100を超えるほど、その成分が強く残っています。補正後に増えた項目は赤で「悪化」と表示します。
+            100以下が目安です。100を超えるほど、その成分が強く残っています。補正後に増えた項目は「要確認」と表示します。
           </p>
           <p className="mt-1 text-xs text-muted">
-            ある項目を下げる処理で別の項目が少し増えることがあります。音が自然なら許容、耳に痛い場合は該当スライダーを下げて再補正してください。
+            ここは内部診断です。補正対象スコアと音質保持スコアを分けて見てください。耳に痛い場合は該当スライダーを下げて再補正してください。
           </p>
         </div>
-        {hasWorse && <span className="rounded bg-amber-200 px-2 py-1 text-xs font-bold text-slate-950">悪化項目あり</span>}
+        {hasWorse && <span className="rounded bg-amber-200 px-2 py-1 text-xs font-bold text-slate-950">要確認項目あり</span>}
       </div>
       <div className="mt-3 overflow-x-auto">
         <table className="w-full min-w-[760px] border-collapse text-xs">
@@ -750,7 +851,7 @@ function InternalSeverityTable({ before, after }: { before?: AudioAnalysis; afte
                     {typeof delta === "number" ? `${delta > 0 ? "+" : ""}${delta.toFixed(0)}` : "-"}
                   </td>
                   <td className={worsened ? "py-2 pr-3 font-semibold text-amber-200" : improved ? "py-2 pr-3 font-semibold text-emerald-200" : "py-2 pr-3 text-muted"}>
-                    {worsened ? "悪化" : improved ? "改善" : current > 100 ? "100超え" : "100以下"}
+                    {worsened ? "要確認" : improved ? "改善" : current > 100 ? "100超え" : "100以下"}
                   </td>
                 </tr>
               );
@@ -883,16 +984,34 @@ export default function Home() {
     window.setTimeout(async () => {
       try {
         await waitForPaint();
-        const next = await processAudioAsync(audio, nextParams, analysis);
+        let appliedParams = nextParams;
+        let next = await processAudioAsync(audio, nextParams, analysis);
         setStatus("補正後スコアを解析中...");
-        const nextProcessedAnalysis = await analyzeAudioAsync(next.audio, 10, analysis ? { startSec: analysis.referenceProfile.startSec, endSec: analysis.referenceProfile.endSec } : undefined);
+        let nextProcessedAnalysis = await analyzeAudioAsync(next.audio, 10, analysis ? { startSec: analysis.referenceProfile.startSec, endSec: analysis.referenceProfile.endSec } : undefined);
+        const firstQuality = qualityAssessment(analysis, nextProcessedAnalysis);
+        let safetyAdjusted = false;
+        if (firstQuality?.shouldFallback) {
+          setStatus("補正後に悪化サインを検出したため、聴感優先の安全設定で再補正中...");
+          const saferParams = makeAuditionSafeParams(nextParams);
+          const safer = await processAudioAsync(audio, saferParams, analysis);
+          const saferAnalysis = await analyzeAudioAsync(safer.audio, 10, analysis ? { startSec: analysis.referenceProfile.startSec, endSec: analysis.referenceProfile.endSec } : undefined);
+          const saferQuality = qualityAssessment(analysis, saferAnalysis);
+          if (shouldPreferSaferResult(firstQuality, saferQuality)) {
+            appliedParams = saferParams;
+            next = safer;
+            nextProcessedAnalysis = saferAnalysis;
+            safetyAdjusted = true;
+          }
+        }
         setProcessed(next.audio);
         setProcessedAnalysis(nextProcessedAnalysis);
         setResult(next);
+        if (safetyAdjusted) setParams(appliedParams);
         setSettingsDirty(false);
         const delta = scoreDelta(analysis, nextProcessedAnalysis);
         const improvement = delta ? ` / 後半劣化 ${delta.lastThirdScore >= 0 ? "-" : "+"}${Math.abs(delta.lastThirdScore).toFixed(0)}` : "";
-        setStatus(`補正完了。出力Peak ${next.peakDb.toFixed(1)} dBFS${improvement}`);
+        const safetyNote = safetyAdjusted ? "（悪化サインを検出したため安全側へ自動調整）" : "";
+        setStatus(`補正完了${safetyNote}。出力Peak ${next.peakDb.toFixed(1)} dBFS${improvement}`);
       } catch (error) {
         console.error(error);
         setStatus("補正処理に失敗しました。");
