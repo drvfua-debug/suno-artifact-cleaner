@@ -14,7 +14,8 @@ import { analyzeAudio } from "@/lib/audio/analysis";
 import { decodeAudioFile } from "@/lib/audio/decode";
 import { processAudio } from "@/lib/audio/dsp";
 import { applyMasteringPreset, applyPreset, defaultParams, presets } from "@/lib/audio/presets";
-import { buildRecommendedParams, recommendForAnalysis } from "@/lib/audio/recommendation";
+import { buildRecommendedParams, buildRepairOptions, recommendForAnalysis } from "@/lib/audio/recommendation";
+import type { RepairOption } from "@/lib/audio/recommendation";
 import type { AudioAnalysis, AudioBufferData, DegradationSummary, ProcessingParams, ProcessingResult, TimelineMetric } from "@/lib/audio/types";
 
 type FileMeta = { name: string; size: number; bitDepth?: number; format: "WAV" | "MP3" };
@@ -302,10 +303,39 @@ function scoreSeverityDelta(before: AudioAnalysis | undefined, after: AudioAnaly
   ]));
 }
 
+function qualityAssessment(before: AudioAnalysis | undefined, after: AudioAnalysis | undefined): { score: number; notes: string[]; warnings: string[] } | undefined {
+  if (!before || !after) return undefined;
+  const delta = scoreDelta(before, after);
+  if (!delta) return undefined;
+  const artifactGain =
+    Math.max(0, delta.harshness) * 0.14 +
+    Math.max(0, delta.sibilance) * 0.16 +
+    Math.max(0, delta.metallic) * 0.16 +
+    Math.max(0, delta.hiss) * 0.22 +
+    Math.max(0, delta.maxDegradationScore) * 0.18 +
+    Math.max(0, delta.lastThirdScore) * 0.14;
+  const loudnessLoss = Math.max(0, before.rmsDb - after.rmsDb - 1.8);
+  const peakTooLow = after.peakDb < -10 ? 5 : 0;
+  const mudIncrease = Math.max(0, after.scores.mud - before.scores.mud) * 0.18;
+  const highLossIncrease = Math.max(0, after.highFrequencyLossScore - before.highFrequencyLossScore) * 0.1;
+  const score = Math.round(Math.max(0, Math.min(100, 55 + artifactGain - loudnessLoss * 6 - peakTooLow - mudIncrease - highLossIncrease)));
+  const notes = [
+    delta.hiss > 0 ? "High-end noise was reduced." : "High-end noise improvement is small.",
+    delta.harshness + delta.sibilance > 0 ? "Harshness and sibilance were reduced." : "Some harshness remains.",
+    after.peakDb > -1 ? "Peak headroom is tight." : "Peak headroom is safe."
+  ];
+  const warnings: string[] = [];
+  if (loudnessLoss > 1.5) warnings.push("Loudness dropped enough that the result may feel too quiet.");
+  if (mudIncrease > 5) warnings.push("Low-mid mud increased; check for thickness or blur.");
+  if (after.highFrequencyLossScore > before.highFrequencyLossScore + 12) warnings.push("Top-end openness may have been reduced too much.");
+  return { score, notes, warnings };
+}
+
 function buildReport(fileName: string | undefined, analysis: AudioAnalysis | undefined, processedAnalysis: AudioAnalysis | undefined, params: ProcessingParams, result: ProcessingResult | undefined, preset: string) {
   if (!analysis) return {};
   const delta = scoreDelta(analysis, processedAnalysis);
   const severityDelta = scoreSeverityDelta(analysis, processedAnalysis);
+  const quality = qualityAssessment(analysis, processedAnalysis);
   return {
     sourceFilename: fileName,
     duration: analysis.duration,
@@ -335,6 +365,7 @@ function buildReport(fileName: string | undefined, analysis: AudioAnalysis | und
     processedScoreSeverity: processedAnalysis?.scoreSeverity,
     scoreDelta: delta,
     scoreSeverityDelta: severityDelta,
+    qualityAssessment: quality,
     selectedPreset: preset,
     manualParameters: params,
     processingChain: result?.chain ?? [],
@@ -471,6 +502,7 @@ function ReportSummaryPanel({ fileName, analysis, processedAnalysis, preset, cha
 
 function ScoreComparisonPanel({ before, after }: { before?: AudioAnalysis; after?: AudioAnalysis }) {
   if (!before) return null;
+  const quality = qualityAssessment(before, after);
   return (
     <div className="rounded border border-line bg-panel p-4">
       <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
@@ -478,7 +510,7 @@ function ScoreComparisonPanel({ before, after }: { before?: AudioAnalysis; after
           <h2 className="font-semibold">Processed Score / Before-After</h2>
           <p className="text-xs text-muted">Re-analyzes before and after with the same approximate analysis logic.</p>
         </div>
-        {after && <div className="text-xs text-emerald-200">Processed analysis complete</div>}
+        {quality ? <div className="rounded bg-emerald-300/15 px-3 py-2 text-sm font-semibold text-emerald-100">Improvement {quality.score} / 100</div> : after && <div className="text-xs text-emerald-200">Processed analysis complete</div>}
       </div>
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <ComparisonRow label="Late-section decay" before={before.degradationSummary.lastThirdScore} after={after?.degradationSummary.lastThirdScore} />
@@ -495,6 +527,15 @@ function ScoreComparisonPanel({ before, after }: { before?: AudioAnalysis; after
           <div className="rounded bg-panel2 px-3 py-2">Processed Peak: <span className="text-slate-100">{after.peakDb.toFixed(1)} dBFS</span></div>
           <div className="rounded bg-panel2 px-3 py-2">Processed LUFS estimate: <span className="text-slate-100">{after.estimatedLufs.toFixed(1)}</span></div>
           <div className="rounded bg-panel2 px-3 py-2">Processed max section: <span className="text-slate-100">{formatTime(after.degradationSummary.maxScoreStartSec)} - {formatTime(after.degradationSummary.maxScoreEndSec)}</span></div>
+        </div>
+      )}
+      {quality && (
+        <div className="mt-3 rounded border border-line bg-panel2 p-3 text-xs leading-relaxed text-muted">
+          <div className="font-semibold text-slate-100">Automatic Quality Check</div>
+          <div className="mt-1 grid gap-1 sm:grid-cols-3">
+            {quality.notes.map((note) => <span key={note}>{note}</span>)}
+          </div>
+          {quality.warnings.length > 0 && <div className="mt-2 text-amber-200">{quality.warnings.join(" / ")}</div>}
         </div>
       )}
     </div>
@@ -981,6 +1022,7 @@ export default function Home() {
   const activeRecommendation = analysis ? recommendForAnalysis(analysis, fileMeta?.format ?? "WAV") : undefined;
   const recommendedAutoId = activeRecommendation?.presetId ?? "";
   const recommendedAutoLabel = analysis ? presetDisplayName(recommendedAutoId, recommended) : recommended;
+  const repairOptions = useMemo(() => analysis ? buildRepairOptions(analysis, fileMeta?.format ?? "WAV", defaultParams) : [], [analysis, fileMeta?.format]);
   const positiveSuggestions = useMemo(() => getPositiveSuggestions(analysis, fileMeta?.format), [analysis, fileMeta?.format]);
   const mp3HighLossNotice = fileMeta?.format === "MP3" && analysis && analysis.highFrequencyLossScore >= 60;
   const wavAirRecoverNotice = fileMeta?.format === "WAV" && analysis && params.highAirRecover >= 6 && analysis.highFrequencyLossScore >= 35;
@@ -1021,6 +1063,20 @@ export default function Home() {
     });
     setSettingsDirty(true);
     setStatus(`Added enhancement "${suggestion.label}". Press Process to apply.`);
+  };
+
+  const applyRepairOption = (option: RepairOption) => {
+    setPreset(option.recommendation.presetId);
+    setParams({
+      ...option.params,
+      masteringEnabled: params.masteringEnabled,
+      autoLoudness: params.autoLoudness
+    });
+    if (option.recommendation.presetId === "decay-gentle") setLongSongStrength("gentle");
+    if (option.recommendation.presetId === "decay-balanced") setLongSongStrength("balanced");
+    if (option.recommendation.presetId === "decay-strong") setLongSongStrength("strong");
+    setSettingsDirty(true);
+    setStatus(`Selected ${option.label} suggested values. ${option.notes.join(" ")} Next, press Process.`);
   };
 
   return (
@@ -1098,6 +1154,32 @@ export default function Home() {
               <div className="mt-3 rounded border border-line bg-panel2 px-3 py-2 text-xs text-muted">
                 After loading WAV / MP3, the recommended repair type and suggested slider values are selected automatically. MP3 can be analyzed and processed, but export is WAV for easier quality checking. Choose Full Manual if you do not want to use a preset.
               </div>
+              {repairOptions.length > 0 && (
+                <div className="mt-4 rounded border border-fuchsia-300/20 bg-slate-950/30 p-3">
+                  <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+                    <div>
+                      <h3 className="text-sm font-semibold text-fuchsia-50">Three Auto Repair Options</h3>
+                      <p className="mt-1 text-xs leading-relaxed text-muted">The same analysis generates source-first, recommended, and stronger settings. Balanced is normally selected automatically.</p>
+                    </div>
+                    <span className="text-[11px] text-muted">For Ozone/RX-style comparison</span>
+                  </div>
+                  <div className="mt-3 grid gap-2 md:grid-cols-3">
+                    {repairOptions.map((option) => (
+                      <button
+                        key={option.id}
+                        onClick={() => applyRepairOption(option)}
+                        className={`rounded border p-3 text-left text-xs transition ${option.id === "balanced" ? "border-fuchsia-300 bg-fuchsia-400/15" : "border-line bg-panel2 hover:border-slate-500"}`}
+                      >
+                        <span className="block text-sm font-semibold text-slate-100">{option.label}</span>
+                        <span className="mt-1 block leading-relaxed text-muted">{option.description}</span>
+                        <span className="mt-2 block text-slate-300">
+                          Hiss {option.params.hissReduction} / Harsh {option.params.harshnessReduction} / Width Noise {option.params.stereoWidthReduction}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
                 {quickPresets.map((item) => (
                   <button
