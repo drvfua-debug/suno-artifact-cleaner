@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { recommendForAnalysis } from "@/lib/audio/recommendation";
+import { buildRecommendedParams, recommendForAnalysis } from "@/lib/audio/recommendation";
 import type { AudioAnalysis } from "@/lib/audio/types";
 
 type AnalysisOverrides = Partial<Omit<AudioAnalysis, "scores" | "degradationSummary">> & {
@@ -143,5 +143,30 @@ describe("auto recommendation", () => {
     }), "WAV");
     expect(recommendation.presetId).toBe("natural");
     expect(recommendation.profile).toBe("natural");
+  });
+
+  it("builds adaptive numeric params instead of only copying a preset", () => {
+    const analysis = makeAnalysis({
+      peakDb: -4.8,
+      rmsDb: -18,
+      scores: { harshness: 25, sibilance: 20, metallic: 7, hiss: 45, mud: 30 },
+      degradationSummary: {
+        recommendedPreset: "balanced",
+        firstThirdScore: 36,
+        middleThirdScore: 59,
+        lastThirdScore: 78,
+        averageDegradationScore: 58,
+        maxScore: 90,
+        maxScoreStartSec: 220,
+        maxScoreEndSec: 230,
+        primaryCause: "hiss"
+      }
+    });
+    const auto = buildRecommendedParams(analysis, "WAV");
+    expect(auto.recommendation.presetId).toMatch(/^decay-/);
+    expect(auto.params.hissReduction).toBeGreaterThan(auto.params.harshnessReduction);
+    expect(auto.params.outputGainDb).toBeGreaterThan(0);
+    expect(auto.params.vocalBody).toBeGreaterThan(0);
+    expect(auto.params.masteringEnabled).toBe(false);
   });
 });

@@ -1,4 +1,5 @@
-import type { AudioAnalysis, DegradationSummary } from "./types";
+import { applyPreset, defaultParams } from "./presets";
+import type { AudioAnalysis, DegradationSummary, ProcessingParams } from "./types";
 
 export type InputFormat = "WAV" | "MP3";
 
@@ -27,6 +28,14 @@ export function recommendedPresetId(preset: DegradationSummary["recommendedPrese
 
 function clamp01(value: number): number {
   return Math.max(0, Math.min(1, value));
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+function round(value: number): number {
+  return Math.round(value);
 }
 
 export function recommendForAnalysis(analysis: AudioAnalysis, format: InputFormat = "WAV"): AutoRecommendation {
@@ -118,4 +127,87 @@ export function recommendForAnalysis(analysis: AudioAnalysis, format: InputForma
     confidence: 0.35,
     reason: "Strong localized decay or global harshness is not dominant, so light source-preserving repair is selected."
   };
+}
+
+export function buildRecommendedParams(
+  analysis: AudioAnalysis,
+  format: InputFormat = "WAV",
+  base: ProcessingParams = defaultParams
+): { recommendation: AutoRecommendation; params: ProcessingParams; notes: string[] } {
+  const recommendation = recommendForAnalysis(analysis, format);
+  const { scores, degradationSummary } = analysis;
+  const first = degradationSummary.firstThirdScore;
+  const middle = degradationSummary.middleThirdScore;
+  const last = degradationSummary.lastThirdScore;
+  const maxScore = degradationSummary.maxScore;
+  const temporalSeverity = Math.max(maxScore, last, middle);
+  const temporalRise = Math.max(middle, last) - first;
+  const harshVocal = Math.max(scores.harshness, scores.sibilance);
+  const glassNoise = Math.max(scores.hiss, scores.metallic);
+  const artifactRisk = Math.max(harshVocal, glassNoise, temporalSeverity);
+  const overallRepair = clamp(24 + artifactRisk * 0.42 + Math.max(0, temporalRise) * 0.18, 22, 72);
+  const headroom =
+    artifactRisk >= 100 || maxScore >= 88 ? -2.5 :
+    artifactRisk >= 72 || maxScore >= 68 ? -2 :
+    artifactRisk >= 45 ? -1.5 :
+    -1;
+
+  let params: ProcessingParams = {
+    ...applyPreset(base, recommendation.presetId),
+    repairAmount: round(overallRepair),
+    harshnessReduction: round(clamp(18 + scores.harshness * 0.45 + Math.max(0, temporalRise) * 0.12, 12, 62)),
+    sibilanceReduction: round(clamp(18 + scores.sibilance * 0.5 + Math.max(0, temporalRise) * 0.14, 12, 66)),
+    metallicReduction: round(clamp(16 + scores.metallic * 0.55 + maxScore * 0.12, 10, 68)),
+    hissReduction: round(clamp(18 + scores.hiss * 0.62 + maxScore * 0.16, 12, 72)),
+    mudReduction: round(clamp(8 + scores.mud * 0.22, 6, 32)),
+    toneLeveling: round(clamp(artifactRisk * 0.12, 0, 18)),
+    stereoWidthReduction: round(clamp(18 + maxScore * 0.45 + Math.max(0, temporalRise) * 0.18, 12, 72)),
+    layeredSpectralRepair: round(clamp(24 + maxScore * 0.48, 20, 76)),
+    highTextureRepair: round(clamp(18 + glassNoise * 0.45 + maxScore * 0.16, 14, 68)),
+    artifactHeadroomDb: headroom,
+    outputGainDb: artifactRisk >= 72 ? 1.5 : artifactRisk >= 45 ? 1 : 0.5,
+    truePeakCeilingDb: artifactRisk >= 72 ? -1.2 : -1,
+    masteringEnabled: false,
+    autoLoudness: false,
+    playbackLoudnessMatch: true,
+    preserveBrightness: true,
+    safeMode: recommendation.presetId !== "decay-strong" && recommendation.presetId !== "strong-repair",
+    longSongDecayFix: recommendation.presetId.startsWith("decay-") || recommendation.profile === "temporal_decay",
+    highAirRecover: 0,
+    bassEnhance: 0,
+    vocalForward: 0,
+    vocalBody: 0,
+    lowWeight: 0,
+    air: 0,
+    presence: 0,
+    mixWarmth: 0
+  };
+
+  const notes: string[] = ["Slider values were adapted from the analysis."];
+  const sourceHasRoom = analysis.peakDb <= -3 && analysis.rmsDb <= -16;
+  const needsBodyBack = sourceHasRoom && artifactRisk >= 45 && scores.mud < 72;
+  if (needsBodyBack) {
+    params = {
+      ...params,
+      vocalBody: round(clamp(6 + Math.max(0, 62 - scores.mud) * 0.12, 6, 16)),
+      mixWarmth: round(clamp(4 + Math.max(0, 58 - scores.mud) * 0.1, 4, 12)),
+      lowWeight: round(clamp(3 + Math.max(0, 50 - scores.mud) * 0.08, 2, 8))
+    };
+    notes.push("A small body recovery was added to avoid an overly thin result.");
+  }
+
+  if (format === "WAV" && analysis.highFrequencyLossScore >= 45 && glassNoise < 42) {
+    params = {
+      ...params,
+      highAirRecover: round(clamp((analysis.highFrequencyLossScore - 35) * 0.28, 4, 12))
+    };
+    notes.push("Subtle high-air recovery was added for detected WAV high-frequency loss.");
+  }
+
+  if (format === "MP3") {
+    params = { ...params, highAirRecover: 0, air: 0 };
+    notes.push("MP3 high-frequency loss is not aggressively boosted.");
+  }
+
+  return { recommendation, params, notes };
 }

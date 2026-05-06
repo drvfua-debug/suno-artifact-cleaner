@@ -14,7 +14,7 @@ import { analyzeAudio } from "@/lib/audio/analysis";
 import { decodeAudioFile } from "@/lib/audio/decode";
 import { processAudio } from "@/lib/audio/dsp";
 import { applyMasteringPreset, applyPreset, defaultParams, presets } from "@/lib/audio/presets";
-import { recommendForAnalysis } from "@/lib/audio/recommendation";
+import { buildRecommendedParams, recommendForAnalysis } from "@/lib/audio/recommendation";
 import type { AudioAnalysis, AudioBufferData, DegradationSummary, ProcessingParams, ProcessingResult, TimelineMetric } from "@/lib/audio/types";
 
 type FileMeta = { name: string; size: number; bitDepth?: number; format: "WAV" | "MP3" };
@@ -883,10 +883,11 @@ export default function Home() {
       setFileMeta({ name: file.name, size: file.size, bitDepth: decoded.bitDepth, format });
       setStatus("Analyzing...");
       const nextAnalysis = await analyzeAudioAsync(decoded.data, 10);
-      const recommendation = recommendForAnalysis(nextAnalysis, format);
+      const auto = buildRecommendedParams(nextAnalysis, format, defaultParams);
+      const recommendation = auto.recommendation;
       const autoPresetId = recommendation.presetId;
       const autoParams = {
-        ...applyNoiseReductionPreset(defaultParams, autoPresetId),
+        ...auto.params,
         masteringEnabled: false,
         autoLoudness: false,
         artifactHeadroomDb: recommendedArtifactHeadroomDb(nextAnalysis)
@@ -900,7 +901,7 @@ export default function Home() {
       setMasteringPreset("");
       setMode("long");
       const airMessage = format === "WAV" && autoParams.highAirRecover > 0 ? ` Added ${Math.round(autoParams.highAirRecover)}% high-air recovery for WAV. ` : "";
-      setStatus(`Analysis complete. Auto-selected repair type: "${presetDisplayName(autoPresetId, recommendedPresetLabel(nextAnalysis.degradationSummary.recommendedPreset))}". ${airMessage}${recommendation.reason} Next, press Process.`);
+      setStatus(`Analysis complete. Auto-selected repair type and suggested slider values: "${presetDisplayName(autoPresetId, recommendedPresetLabel(nextAnalysis.degradationSummary.recommendedPreset))}". ${airMessage}${recommendation.reason} ${auto.notes.join(" ")} Next, press Process.`);
     } catch (error) {
       console.error(error);
       setStatus("Loading or analysis failed.");
@@ -927,16 +928,17 @@ export default function Home() {
   };
 
   const chooseRecommendedPreset = () => {
-    const id = analysis ? recommendForAnalysis(analysis, fileMeta?.format ?? "WAV").presetId : recommendedPresetId(longSongStrength);
+    const auto = analysis ? buildRecommendedParams(analysis, fileMeta?.format ?? "WAV", params) : undefined;
+    const id = auto ? auto.recommendation.presetId : recommendedPresetId(longSongStrength);
     const nextParams = {
-      ...applyNoiseReductionPreset(params, id),
+      ...(auto ? auto.params : applyNoiseReductionPreset(params, id)),
       masteringEnabled: params.masteringEnabled,
       autoLoudness: params.autoLoudness
     };
     setPreset(id);
     setParams(nextParams);
     setSettingsDirty(true);
-    setStatus("Returned to the recommended settings. Next, press Process.");
+    setStatus(`Returned to the recommended settings and suggested slider values. ${auto ? auto.notes.join(" ") : ""} Next, press Process.`);
   };
 
   const chooseManualMode = () => {
@@ -1079,8 +1081,8 @@ export default function Home() {
               <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div>
                   <div className="text-xs text-sky-100">2. Subtractive Repair</div>
-                  <h2 className="mt-1 text-lg font-semibold">Auto-selects a noise-reduction repair type</h2>
-                  <p className="mt-1 text-sm text-muted">Auto-selection only chooses subtractive repair. Brightness, weight, and vocal forwardness are added separately below.</p>
+                  <h2 className="mt-1 text-lg font-semibold">Auto-selects repair type and suggested values</h2>
+                  <p className="mt-1 text-sm text-muted">The analysis sets each slider automatically. It mainly reduces noise, and adds a little body only when the result may become too thin.</p>
                 </div>
                 <div className="grid gap-2 sm:grid-cols-2 md:min-w-[360px]">
                   <button disabled={!analysis || busy} onClick={chooseRecommendedPreset} className="rounded border border-fuchsia-300/50 bg-fuchsia-300/15 px-4 py-3 text-sm font-semibold text-fuchsia-50 disabled:opacity-40">
@@ -1094,7 +1096,7 @@ export default function Home() {
                 </div>
               </div>
               <div className="mt-3 rounded border border-line bg-panel2 px-3 py-2 text-xs text-muted">
-                After loading WAV / MP3, the recommended repair type is selected automatically. MP3 can be analyzed and processed, but export is WAV for easier quality checking. Choose Full Manual if you do not want to use a preset.
+                After loading WAV / MP3, the recommended repair type and suggested slider values are selected automatically. MP3 can be analyzed and processed, but export is WAV for easier quality checking. Choose Full Manual if you do not want to use a preset.
               </div>
               <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
                 {quickPresets.map((item) => (
