@@ -14,7 +14,7 @@ import { analyzeAudio } from "@/lib/audio/analysis";
 import { decodeAudioFile } from "@/lib/audio/decode";
 import { processAudio } from "@/lib/audio/dsp";
 import { applyMasteringPreset, applyPreset, defaultParams, presets } from "@/lib/audio/presets";
-import { recommendForAnalysis } from "@/lib/audio/recommendation";
+import { buildRecommendedParams, recommendForAnalysis } from "@/lib/audio/recommendation";
 import type { AudioAnalysis, AudioBufferData, DegradationSummary, ProcessingParams, ProcessingResult, TimelineMetric } from "@/lib/audio/types";
 
 type FileMeta = { name: string; size: number; bitDepth?: number; format: "WAV" | "MP3" };
@@ -883,10 +883,11 @@ export default function Home() {
       setFileMeta({ name: file.name, size: file.size, bitDepth: decoded.bitDepth, format });
       setStatus("解析中...");
       const nextAnalysis = await analyzeAudioAsync(decoded.data, 10);
-      const recommendation = recommendForAnalysis(nextAnalysis, format);
+      const auto = buildRecommendedParams(nextAnalysis, format, defaultParams);
+      const recommendation = auto.recommendation;
       const autoPresetId = recommendation.presetId;
       const autoParams = {
-        ...applyNoiseReductionPreset(defaultParams, autoPresetId),
+        ...auto.params,
         masteringEnabled: false,
         autoLoudness: false,
         artifactHeadroomDb: recommendedArtifactHeadroomDb(nextAnalysis)
@@ -900,7 +901,7 @@ export default function Home() {
       setMasteringPreset("");
       setMode("long");
       const airMessage = format === "WAV" && autoParams.highAirRecover > 0 ? ` WAV向けの高域エア補完を${Math.round(autoParams.highAirRecover)}%入れました。` : "";
-      setStatus(`解析完了。おすすめ補正タイプ「${presetDisplayName(autoPresetId, recommendedPresetLabel(nextAnalysis.degradationSummary.recommendedPreset))}」を自動選択しました。${airMessage}${recommendation.reason} 次に「補正する」を押してください。`);
+      setStatus(`解析完了。おすすめ補正タイプ「${presetDisplayName(autoPresetId, recommendedPresetLabel(nextAnalysis.degradationSummary.recommendedPreset))}」と提案数値を自動設定しました。${airMessage}${recommendation.reason} ${auto.notes.join(" ")} 次に「補正する」を押してください。`);
     } catch (error) {
       console.error(error);
       setStatus("読み込みまたは解析に失敗しました。");
@@ -927,16 +928,17 @@ export default function Home() {
   };
 
   const chooseRecommendedPreset = () => {
-    const id = analysis ? recommendForAnalysis(analysis, fileMeta?.format ?? "WAV").presetId : recommendedPresetId(longSongStrength);
+    const auto = analysis ? buildRecommendedParams(analysis, fileMeta?.format ?? "WAV", params) : undefined;
+    const id = auto ? auto.recommendation.presetId : recommendedPresetId(longSongStrength);
     const nextParams = {
-      ...applyNoiseReductionPreset(params, id),
+      ...(auto ? auto.params : applyNoiseReductionPreset(params, id)),
       masteringEnabled: params.masteringEnabled,
       autoLoudness: params.autoLoudness
     };
     setPreset(id);
     setParams(nextParams);
     setSettingsDirty(true);
-    setStatus("おすすめ設定に戻しました。次に「補正する」を押してください。");
+    setStatus(`おすすめ設定と提案数値に戻しました。${auto ? auto.notes.join(" ") : ""} 次に「補正する」を押してください。`);
   };
 
   const chooseManualMode = () => {
@@ -1079,8 +1081,8 @@ export default function Home() {
               <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div>
                   <div className="text-xs text-sky-100">2. マイナス補正</div>
-                  <h2 className="mt-1 text-lg font-semibold">ノイズを減らす補正タイプを自動選択します</h2>
-                  <p className="mt-1 text-sm text-muted">自動選択はノイズを削る処理だけを選びます。明るさ・太さ・ボーカル前出しは下の「プラス補正」で別に足します。</p>
+                  <h2 className="mt-1 text-lg font-semibold">補正タイプと提案数値を自動選択します</h2>
+                  <p className="mt-1 text-sm text-muted">解析結果から各スライダー値まで自動で入れます。基本はノイズを削り、細くなりそうな曲だけ控えめに太さを戻します。</p>
                 </div>
                 <div className="grid gap-2 sm:grid-cols-2 md:min-w-[360px]">
                   <button disabled={!analysis || busy} onClick={chooseRecommendedPreset} className="rounded border border-fuchsia-300/50 bg-fuchsia-300/15 px-4 py-3 text-sm font-semibold text-fuchsia-50 disabled:opacity-40">
@@ -1094,7 +1096,7 @@ export default function Home() {
                 </div>
               </div>
               <div className="mt-3 rounded border border-line bg-panel2 px-3 py-2 text-xs text-muted">
-                WAV / MP3読み込み後におすすめ補正タイプを自動選択します。MP3も解析と補正はできますが、保存は音質確認しやすいWAV形式です。プリセットを使わず自分で作る場合は「完全マニュアル」を選んでください。
+                WAV / MP3読み込み後におすすめ補正タイプと推奨スライダー値を自動選択します。MP3も解析と補正はできますが、保存は音質確認しやすいWAV形式です。プリセットを使わず自分で作る場合は「完全マニュアル」を選んでください。
               </div>
               <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
                 {quickPresets.map((item) => (
